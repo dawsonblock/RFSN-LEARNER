@@ -23,7 +23,8 @@ from .agent_gate import agent_gate
 from .tool_router import route_action, list_available_tools, ExecutionContext
 from .tools.filesystem import ToolResult
 from .planner import execute_plan
-from .planner.generator import auto_plan
+from .planner.generator import generate_plan
+from .learner_bridge import LearnerBridge, LearnerConfig
 
 
 def create_world_snapshot(
@@ -124,6 +125,14 @@ def run_interactive_mode(policy: AgentPolicy):
     print("  {json}          - Send JSON action")
     print()
     
+    # Initialize the learner bridge (closes the learning loop)
+    learner = LearnerBridge(LearnerConfig(
+        db_path=str(Path("./tmp/outcomes.sqlite")),
+        enabled=True,
+    ))
+    print(f"Learner: enabled, db=./tmp/outcomes.sqlite")
+    print()
+    
     while True:
         try:
             user_input = input("You: ").strip()
@@ -162,11 +171,15 @@ def run_interactive_mode(policy: AgentPolicy):
             
             print(f"\n[PLANNING] Goal: {goal}")
             
-            # Generate plan
-            snapshot = create_world_snapshot(session_id, context, policy)
-            plan = auto_plan(goal, snapshot)
+            # Learner picks strategy via Thompson sampling
+            seed = int(uuid.uuid4().int & 0xFFFFFFFF)
+            strategy = learner.choose_plan_strategy(goal=goal, seed=seed)
             
-            print(f"[PLAN] Strategy: {plan.strategy}, Steps: {len(plan.steps)}")
+            # Generate plan with learned strategy
+            snapshot = create_world_snapshot(session_id, context, policy)
+            plan = generate_plan(goal, snapshot, strategy=strategy)
+            
+            print(f"[PLAN] Strategy: {plan.strategy} (learned), Steps: {len(plan.steps)}")
             for i, step in enumerate(plan.steps, 1):
                 print(f"  {i}. {step.description} [{step.action.kind}]")
             
@@ -184,6 +197,20 @@ def run_interactive_mode(policy: AgentPolicy):
                     print(f"      → Error: {sr.error}")
             
             print(f"\n[RESULT] {'SUCCESS' if result.success else 'FAILED'} ({result.completed_steps}/{result.total_steps} steps)")
+            
+            # Record outcome to learner DB - THIS IS THE CLOSED LOOP
+            learner.record_plan_outcome(
+                goal=goal,
+                strategy=strategy,
+                plan=plan,
+                result=result,
+                meta={
+                    "session_id": session_id,
+                    "policy": "DEV" if policy == DEV_POLICY else "DEFAULT",
+                    "seed": seed,
+                },
+            )
+            print(f"[LEARNER] Recorded outcome: reward computed from {result.completed_steps}/{result.total_steps} steps")
             
             # Log to ledger
             for step in plan.steps:
