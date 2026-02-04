@@ -1,0 +1,10 @@
+{
+    "repo_path": "./examples/demo_repo",
+    "task_id": "smoke_test_001",
+    "test_command": "python -m pytest -v",
+    "toolchain": "python3.12",
+    "timeout_seconds": 60,
+    "use_docker": false,
+    "ledger_path": "rfsn_ledger.jsonl",
+    "outcome_db_path": "outcomes.db"
+}

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+*.log
+.venv/
+venv/
+.env
+dist/
+build/
+*.egg-info/
+rfsn_ledger.jsonl

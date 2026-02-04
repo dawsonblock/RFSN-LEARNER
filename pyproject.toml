@@ -1,0 +1,9 @@
+[project]
+name = "rfsn-kernel"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+rfsn = "rfsn.cli:main"
+rfsn-learn = "upstream_learner.cli:main"

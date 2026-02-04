@@ -1,0 +1,26 @@
+[
+    {
+        "arm_key": "fix_typo_v1",
+        "action": {
+            "kind": "patch_plan",
+            "payload": {
+                "steps": [
+                    "identify typo",
+                    "fix spelling",
+                    "verify tests"
+                ]
+            },
+            "justification": "Non-executable plan to fix a simple typo",
+            "risk_tags": []
+        }
+    },
+    {
+        "arm_key": "fix_typo_v2",
+        "action": {
+            "kind": "patch",
+            "payload": "--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-print('helo')\n+print('hello')\n",
+            "justification": "Simple one-line fix to correct spelling error",
+            "risk_tags": []
+        }
+    }
+]
