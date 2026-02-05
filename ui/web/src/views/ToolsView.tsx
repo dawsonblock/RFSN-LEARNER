@@ -1,132 +1,207 @@
-import { useState, useEffect } from 'react'
-import { Play, AlertTriangle, Shield, ChevronDown, ChevronUp } from 'lucide-react'
-import { useStore } from '../store/useStore'
+import React, { useEffect, useMemo, useState } from "react";
+import { useStore } from "../store/useStore";
 
-interface Tool {
-    name: string
-    risk: string
-    description: string
-    require_grant: boolean
-    deny_in_replay: boolean
-    budget: { calls_per_turn: number; bytes_per_turn: number }
-    schema: Record<string, unknown>
-}
+type Tool = {
+    name: string;
+    risk: string;
+    description?: string;
+    require_grant?: boolean;
+    deny_in_replay?: boolean;
+    budget?: { calls_per_turn: number; max_bytes?: number | null; max_results?: number | null };
+    schema?: { name: string; required: boolean; kind: string }[];
+};
 
-export function ToolsView() {
-    const { sessionId } = useStore()
-    const [tools, setTools] = useState<Tool[]>([])
-    const [expanded, setExpanded] = useState<string | null>(null)
-    const [runForm, setRunForm] = useState<{ tool: string; args: string } | null>(null)
-    const [result, setResult] = useState<Record<string, unknown> | null>(null)
+const MUTATING = new Set(["write_file", "apply_diff", "memory_delete"]);
+
+export default function ToolsView() {
+    const apiGet = useStore((s) => s.apiGet);
+    const apiPost = useStore((s) => s.apiPost);
+    const sessionId = useStore((s) => s.sessionId);
+
+    const [tools, setTools] = useState<Tool[]>([]);
+    const [granted, setGranted] = useState<Set<string>>(new Set());
+    const [pythonEnabled, setPythonEnabled] = useState(false);
+
+    const [selected, setSelected] = useState<Tool | null>(null);
+    const [argsJson, setArgsJson] = useState<string>("{}");
+    const [manualOut, setManualOut] = useState<any>(null);
+
+    const refresh = async () => {
+        const t = await apiGet("/api/tools");
+        setTools((t?.tools || []) as Tool[]);
+
+        if (sessionId) {
+            const p = await apiGet(`/api/perms?session_id=${encodeURIComponent(sessionId)}`);
+            setGranted(new Set((p?.granted_tools || []) as string[]));
+            setPythonEnabled(Boolean(p?.python_execution_enabled));
+        }
+    };
 
     useEffect(() => {
-        fetch('/api/tools')
-            .then((r) => r.json())
-            .then((d) => setTools(d.tools || []))
-    }, [])
+        refresh();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionId]);
 
-    const runTool = async () => {
-        if (!runForm) return
+    const sorted = useMemo(() => {
+        return [...tools].sort((a, b) => a.name.localeCompare(b.name));
+    }, [tools]);
+
+    const grant = async (tool: string) => {
+        if (!sessionId) return;
+        await apiPost("/api/perms/grant", { session_id: sessionId, tool });
+        await refresh();
+    };
+
+    const revoke = async (tool: string) => {
+        if (!sessionId) return;
+        await apiPost("/api/perms/revoke", { session_id: sessionId, tool });
+        await refresh();
+    };
+
+    const togglePython = async (enabled: boolean) => {
+        if (!sessionId) return;
+        await apiPost("/api/perms/python", { session_id: sessionId, enabled });
+        await refresh();
+    };
+
+    const runManual = async () => {
+        if (!sessionId || !selected) return;
+        let args: any = {};
         try {
-            const args = JSON.parse(runForm.args || '{}')
-            const res = await fetch('/api/tools/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tool: runForm.tool,
-                    arguments: args,
-                    session_id: sessionId,
-                }),
-            })
-            setResult(await res.json())
-        } catch (e) {
-            setResult({ error: String(e) })
+            args = JSON.parse(argsJson || "{}");
+        } catch {
+            setManualOut({ error: "Invalid JSON args" });
+            return;
         }
-    }
-
-    const riskColor = (risk: string) => {
-        switch (risk) {
-            case 'low': return 'text-green-500 bg-green-50 dark:bg-green-900/20'
-            case 'medium': return 'text-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-            case 'high': return 'text-red-500 bg-red-50 dark:bg-red-900/20'
-            default: return 'text-slate-500 bg-slate-50'
-        }
-    }
+        const r = await apiPost("/api/tools/run", { session_id: sessionId, tool: selected.name, arguments: args });
+        setManualOut(r);
+    };
 
     return (
-        <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Tool Registry ({tools.length})</h2>
-
-            <div className="grid gap-2">
-                {tools.map((tool) => (
-                    <div
-                        key={tool.name}
-                        className="bg-slate-50 dark:bg-slate-800 rounded-lg overflow-hidden"
-                    >
-                        {/* Header */}
-                        <button
-                            onClick={() => setExpanded(expanded === tool.name ? null : tool.name)}
-                            className="w-full p-4 flex items-center justify-between text-left"
-                        >
-                            <div className="flex items-center gap-3">
-                                <code className="font-medium">{tool.name}</code>
-                                <span className={`px-2 py-0.5 rounded text-xs ${riskColor(tool.risk)}`}>
-                                    {tool.risk}
-                                </span>
-                                {tool.require_grant && (
-                                    <Shield size={14} className="text-yellow-500" />
-                                )}
-                                {tool.deny_in_replay && (
-                                    <AlertTriangle size={14} className="text-red-400" />
-                                )}
-                            </div>
-                            {expanded === tool.name ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                        </button>
-
-                        {/* Expanded */}
-                        {expanded === tool.name && (
-                            <div className="px-4 pb-4 space-y-3 border-t border-slate-200 dark:border-slate-700 pt-3">
-                                <p className="text-sm text-slate-600 dark:text-slate-400">
-                                    {tool.description}
-                                </p>
-
-                                <div className="text-xs space-y-1">
-                                    <div>Budget: {tool.budget.calls_per_turn} calls/turn</div>
-                                    {tool.budget.bytes_per_turn > 0 && (
-                                        <div>Bytes: {(tool.budget.bytes_per_turn / 1024).toFixed(0)}KB/turn</div>
-                                    )}
-                                </div>
-
-                                {/* Run Form */}
-                                <div className="mt-4 space-y-2">
-                                    <textarea
-                                        placeholder='{"arg": "value"}'
-                                        className="w-full p-2 text-xs font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded"
-                                        rows={3}
-                                        value={runForm?.tool === tool.name ? runForm.args : ''}
-                                        onChange={(e) => setRunForm({ tool: tool.name, args: e.target.value })}
-                                    />
-                                    <button
-                                        onClick={() => {
-                                            setRunForm({ tool: tool.name, args: runForm?.args || '{}' })
-                                            runTool()
-                                        }}
-                                        className="flex items-center gap-2 px-3 py-1.5 bg-primary-500 text-white rounded text-sm"
-                                    >
-                                        <Play size={14} /> Run
-                                    </button>
-                                </div>
-
-                                {result && runForm?.tool === tool.name && (
-                                    <pre className="mt-2 p-2 bg-slate-900 text-green-400 rounded text-xs overflow-auto max-h-40">
-                                        {JSON.stringify(result, null, 2)}
-                                    </pre>
-                                )}
-                            </div>
-                        )}
+        <div className="flex h-full">
+            <div className="w-80 border-r border-slate-800 overflow-auto">
+                <div className="p-3 text-sm text-slate-200 border-b border-slate-800">Tools</div>
+                <div className="p-3 space-y-2">
+                    <div className="rounded border border-slate-700/60 bg-slate-900/30 p-3">
+                        <div className="text-sm text-slate-200">Python execution</div>
+                        <div className="text-xs text-slate-400 mt-1">
+                            run_python is gated by both tool grant and a separate enable flag.
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                            <button
+                                className={`px-2 py-1 rounded text-sm ${pythonEnabled ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-slate-300 border border-slate-700"}`}
+                                onClick={() => togglePython(true)}
+                            >
+                                Enable
+                            </button>
+                            <button
+                                className={`px-2 py-1 rounded text-sm ${!pythonEnabled ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-slate-300 border border-slate-700"}`}
+                                onClick={() => togglePython(false)}
+                            >
+                                Disable
+                            </button>
+                        </div>
                     </div>
-                ))}
+
+                    {sorted.map((t) => (
+                        <button
+                            key={t.name}
+                            onClick={() => { setSelected(t); setArgsJson("{}"); setManualOut(null); }}
+                            className={`w-full text-left px-3 py-2 rounded border ${selected?.name === t.name ? "border-slate-500 bg-slate-900/60" : "border-slate-800 bg-slate-900/20"
+                                }`}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="text-sm text-slate-100">{t.name}</div>
+                                <div className="text-xs text-slate-400">{t.risk}</div>
+                            </div>
+
+                            <div className="mt-1 flex flex-wrap gap-1">
+                                {MUTATING.has(t.name) ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-amber-900/40 border border-amber-700/50 text-amber-200">
+                                        MUTATES
+                                    </span>
+                                ) : null}
+                                {t.require_grant ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-200">
+                                        GRANT REQUIRED
+                                    </span>
+                                ) : null}
+                                {t.deny_in_replay ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-200">
+                                        DENIED IN REPLAY
+                                    </span>
+                                ) : null}
+                                {t.name === "run_python" && !pythonEnabled ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-red-900/30 border border-red-700/40 text-red-200">
+                                        PYTHON DISABLED
+                                    </span>
+                                ) : null}
+                                {granted.has(t.name) ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-900/30 border border-emerald-700/40 text-emerald-200">
+                                        GRANTED
+                                    </span>
+                                ) : null}
+                            </div>
+
+                            {t.description ? <div className="text-xs text-slate-400 mt-1 line-clamp-2">{t.description}</div> : null}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4">
+                {!selected ? (
+                    <div className="text-slate-400">Select a tool.</div>
+                ) : (
+                    <div className="space-y-4 max-w-3xl">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <div className="text-lg text-slate-100">{selected.name}</div>
+                                <div className="text-sm text-slate-400">{selected.description}</div>
+                            </div>
+                            <div className="flex gap-2">
+                                {granted.has(selected.name) ? (
+                                    <button className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-100" onClick={() => revoke(selected.name)}>
+                                        Revoke
+                                    </button>
+                                ) : (
+                                    <button className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-100" onClick={() => grant(selected.name)}>
+                                        Grant
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="rounded border border-slate-800 bg-slate-900/30 p-3">
+                            <div className="text-sm text-slate-200">Schema</div>
+                            <pre className="text-xs text-slate-400 mt-2 whitespace-pre-wrap">
+                                {JSON.stringify(selected.schema || [], null, 2)}
+                            </pre>
+                        </div>
+
+                        <div className="rounded border border-slate-800 bg-slate-900/30 p-3">
+                            <div className="text-sm text-slate-200">Manual run</div>
+                            <div className="text-xs text-slate-400 mt-1">Arguments JSON</div>
+                            <textarea
+                                className="w-full mt-2 h-28 rounded bg-slate-950 border border-slate-700 p-2 text-slate-100 text-sm"
+                                value={argsJson}
+                                onChange={(e) => setArgsJson(e.target.value)}
+                            />
+                            <div className="mt-2 flex gap-2">
+                                <button className="px-3 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-100" onClick={runManual}>
+                                    Run
+                                </button>
+                                <button className="px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-200" onClick={() => setManualOut(null)}>
+                                    Clear
+                                </button>
+                            </div>
+                            {manualOut ? (
+                                <pre className="text-xs text-slate-300 mt-3 whitespace-pre-wrap">{JSON.stringify(manualOut, null, 2)}</pre>
+                            ) : null}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
-    )
+    );
 }

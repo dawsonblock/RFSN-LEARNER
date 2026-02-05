@@ -1,8 +1,3 @@
-# controller/permissions.py
-"""
-Permission state for tool authorization.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,24 +5,22 @@ from dataclasses import dataclass, field
 
 @dataclass
 class PermissionState:
-    """
-    Minimal permission store. Grant/revoke tools via UI or commands.
-    """
-
     granted_tools: set[str] = field(default_factory=set)
+    python_execution_enabled: bool = False
 
-    def grant_tool(self, tool: str) -> None:
-        """Grant permission to use a tool."""
-        self.granted_tools.add(tool)
+    def has_tool(self, tool_name: str) -> bool:
+        if tool_name == "run_python" and not self.python_execution_enabled:
+            return False
+        return tool_name in self.granted_tools
 
-    def revoke_tool(self, tool: str) -> None:
-        """Revoke permission for a tool."""
-        self.granted_tools.discard(tool)
+    def grant_tool(self, tool_name: str) -> None:
+        self.granted_tools.add(tool_name)
 
-    def has_tool(self, tool: str) -> bool:
-        """Check if tool is granted."""
-        return tool in self.granted_tools
+    def revoke_tool(self, tool_name: str) -> None:
+        self.granted_tools.discard(tool_name)
 
-    def list_grants(self) -> list[str]:
-        """List all granted tools."""
-        return sorted(self.granted_tools)
+    def enable_python(self) -> None:
+        self.python_execution_enabled = True
+
+    def disable_python(self) -> None:
+        self.python_execution_enabled = False

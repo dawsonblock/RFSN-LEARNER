@@ -448,36 +448,81 @@ async def get_ledger(session_id: str, limit: int = Query(100, ge=1, le=1000)):
 
 @app.get("/api/ledger/{session_id}/verify")
 async def verify_ledger(session_id: str):
-    """Verify ledger hash chain integrity."""
-    session = SESSIONS.get(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    """
+    Verify ledger integrity:
+      1) Chain linkage: prev_entry_hash matches previous entry_hash
+      2) Entry integrity: entry_hash matches recomputed hash of entry core (minus entry_hash)
+    """
+    sess = get_or_create_session(session_id)
+    p = Path(sess.ledger.path)
+    if not p.exists():
+        return {"ok": True, "entries": 0, "note": "ledger missing (empty)"}
 
-    if not os.path.exists(session.ledger.path):
-        return {"valid": True, "entries": 0, "message": "Empty ledger"}
+    def canonical_json(obj) -> bytes:
+        return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
-    entries = []
-    with open(session.ledger.path, "r") as f:
+    def sha256_hex(b: bytes) -> str:
+        import hashlib
+        return hashlib.sha256(b).hexdigest()
+
+    entries: list[dict[str, Any]] = []
+    with p.open("r", encoding="utf-8") as f:
         for line in f:
-            if line.strip():
+            line = line.strip()
+            if not line:
+                continue
+            try:
                 entries.append(json.loads(line))
+            except Exception:
+                return {"ok": False, "error": "invalid_json_line"}
 
-    if not entries:
-        return {"valid": True, "entries": 0}
+    prev_hash: str | None = None
 
-    # Verify chain
-    prev_hash = "0" * 64
-    for i, entry in enumerate(entries):
-        if entry.get("prev_entry_hash") != prev_hash:
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict):
+            return {"ok": False, "index": i, "error": "entry_not_object"}
+
+        stored_entry_hash = e.get("entry_hash")
+        if not isinstance(stored_entry_hash, str) or not stored_entry_hash:
+            return {"ok": False, "index": i, "error": "missing_entry_hash"}
+
+        # 1) Chain linkage
+        if i == 0:
+            prev_declared = e.get("prev_entry_hash", None)
+            if prev_declared not in (None, "", "null"):
+                return {
+                    "ok": False,
+                    "index": i,
+                    "error": "genesis_prev_entry_hash_not_empty",
+                    "prev_entry_hash": prev_declared,
+                }
+        else:
+            prev_declared = e.get("prev_entry_hash")
+            if prev_declared != prev_hash:
+                return {
+                    "ok": False,
+                    "index": i,
+                    "error": "chain_mismatch",
+                    "expected_prev_entry_hash": prev_hash,
+                    "got_prev_entry_hash": prev_declared,
+                }
+
+        # 2) Entry integrity: recompute over the entry without entry_hash
+        core = dict(e)
+        core.pop("entry_hash", None)
+        recomputed = sha256_hex(canonical_json(core))
+        if recomputed != stored_entry_hash:
             return {
-                "valid": False,
-                "entries": len(entries),
-                "broken_at": i,
-                "message": f"Chain broken at entry {i}",
+                "ok": False,
+                "index": i,
+                "error": "entry_hash_mismatch",
+                "expected_entry_hash": recomputed,
+                "got_entry_hash": stored_entry_hash,
             }
-        prev_hash = entry.get("entry_hash", "")
 
-    return {"valid": True, "entries": len(entries)}
+        prev_hash = stored_entry_hash
+
+    return {"ok": True, "entries": len(entries)}
 
 
 # =============================================================================
@@ -569,15 +614,14 @@ async def run_tool_manually(request: ManualToolRequest):
 
 
 @app.get("/api/perms")
-async def get_permissions(session_id: str = Query(None)):
-    """Get current permission state."""
-    if session_id and session_id in SESSIONS:
-        session = SESSIONS[session_id]
-        return {
-            "granted_tools": list(session.context.permissions.granted_tools),
-            "session_id": session_id,
-        }
-    return {"granted_tools": [], "session_id": None}
+async def get_perms(session_id: str = Query(None)):
+    if not session_id or session_id not in SESSIONS:
+        return {"granted_tools": [], "python_execution_enabled": False}
+    sess = SESSIONS[session_id]
+    return {
+        "granted_tools": sorted(list(sess.context.permissions.granted_tools)),
+        "python_execution_enabled": bool(getattr(sess.context.permissions, "python_execution_enabled", False)),
+    }
 
 
 @app.post("/api/perms/grant")
@@ -614,6 +658,22 @@ async def revoke_permission(request: PermissionRequest, session_id: str = Query(
     )
 
     return {"revoked": True, "tool": request.tool}
+
+
+class PythonToggleRequest(BaseModel):
+    session_id: str
+    enabled: bool
+
+
+@app.post("/api/perms/python")
+async def set_python(req: PythonToggleRequest):
+    sess = get_or_create_session(req.session_id)
+    if req.enabled:
+        sess.context.permissions.enable_python()
+    else:
+        sess.context.permissions.disable_python()
+    await broadcast_event(sess.session_id, {"type": "python_toggle", "enabled": bool(req.enabled)})
+    return {"ok": True, "python_execution_enabled": bool(getattr(sess.context.permissions, "python_execution_enabled", False))}
 
 
 # =============================================================================

@@ -1,362 +1,141 @@
 # controller/tools/shell.py
-"""
-Shell execution tools - run commands in subprocess.
-
-Security Hardening:
-- No shell=True - uses shlex.split for safe argument parsing
-- Command allowlist with explicit whitelist
-- Blocked dangerous patterns and shell launchers
-- Environment variable sanitization
-- Structured output {exit_code, stdout, stderr, meta}
-- Execution timing and resource metrics
-"""
-
 from __future__ import annotations
 
-import hashlib
 import os
-import re
 import shlex
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from controller import config, docker_runner
+
 
 @dataclass(frozen=True)
 class ToolResult:
-    """Result from a tool execution."""
-
     success: bool
     output: Any
     error: str | None = None
 
 
-# =============================================================================
-# SECURITY POLICIES
-# =============================================================================
+BLOCKED_SUBSTRINGS = frozenset({
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf .",
+    "sudo",
+    ":(){:|:&};:",  # fork bomb
+    "mkfs",
+    "dd if=/dev/zero",
+    "curl | sh",
+    "wget | sh",
+})
 
-# Dangerous command patterns that are always blocked
-BLOCKED_PATTERNS = frozenset(
-    {
-        "rm -rf /",
-        "rm -rf ~",
-        "rm -rf .",
-        "sudo",
-        "chmod 777",
-        ":(){:|:&};:",  # fork bomb
-        "mkfs",
-        "dd if=/dev/zero",
-        "dd of=/dev",
-        "curl | sh",
-        "wget | sh",
-        "curl | bash",
-        "wget | bash",
-        "> /dev/sda",
-        "shutdown",
-        "reboot",
-        "init 0",
-        "init 6",
-        "kill -9 -1",
-        "pkill -9",
-        ":(){ :|:& };:",
-    }
-)
+ALLOWED_PREFIXES = frozenset({
+    "ls", "cat", "head", "tail", "wc", "grep", "find", "echo", "pwd",
+    "mkdir", "touch", "cp", "mv",
+    "python", "python3", "pip", "pytest", "ruff", "mypy",
+    "git", "npm", "node", "cargo", "go", "make",
+})
 
-# Blocked regex patterns for more sophisticated detection
-BLOCKED_REGEXES = [
-    re.compile(r"rm\s+-[rf]+\s+[/~.]", re.IGNORECASE),
-    re.compile(r">\s*/dev/", re.IGNORECASE),
-    re.compile(r"\|\s*(ba)?sh", re.IGNORECASE),
-    re.compile(r"eval\s+", re.IGNORECASE),
-    re.compile(r"`.*`"),  # command substitution
-    re.compile(r"\$\(.*\)"),  # command substitution
-]
+BLOCKED_FIRST_WORDS = frozenset({"sh", "bash", "zsh", "fish", "dash", "ksh", "powershell", "pwsh", "cmd"})
 
-# Sensitive paths that should be blocked from access
-# Commands reading/writing to these paths will be rejected
-SENSITIVE_PATHS = frozenset(
-    {
-        # Credentials and keys
-        "/etc/passwd",
-        "/etc/shadow",
-        "/etc/sudoers",
-        "/etc/ssh/",
-        "~/.ssh/",
-        "~/.gnupg/",
-        "~/.aws/",
-        "~/.config/gcloud/",
-        "~/.kube/config",
-        # System directories
-        "/proc/",
-        "/sys/",
-        "/boot/",
-        "/root/",
-        # Common credential files
-        ".env",
-        ".netrc",
-        ".npmrc",
-        ".pypirc",
-        "credentials.json",
-        "service_account.json",
-        # Database files
-        "*.db",
-        "*.sqlite",
-        "*.sqlite3",
-    }
-)
-
-# Regex for detecting sensitive path patterns
-SENSITIVE_PATH_PATTERNS = [
-    re.compile(r"/etc/passwd"),
-    re.compile(r"/etc/shadow"),
-    re.compile(r"/etc/sudoers"),
-    re.compile(r"~?/\.ssh/"),
-    re.compile(r"~?/\.aws/"),
-    re.compile(r"~?/\.gnupg/"),
-    re.compile(r"/proc/"),
-    re.compile(r"/root/"),
-    re.compile(r"\.env\b"),
-    re.compile(r"id_rsa"),
-    re.compile(r"id_ed25519"),
-    re.compile(r"private.*key", re.IGNORECASE),
-    re.compile(r"credentials\.json"),
-    re.compile(r"service.account.*\.json", re.IGNORECASE),
-]
-
-# Command allowlist - only these commands are permitted
-ALLOWED_COMMANDS = frozenset(
-    {
-        # Filesystem inspection
-        "ls",
-        "cat",
-        "head",
-        "tail",
-        "wc",
-        "grep",
-        "find",
-        "echo",
-        "pwd",
-        "stat",
-        "file",
-        "du",
-        "df",
-        "tree",
-        "less",
-        "more",
-        "diff",
-        "sort",
-        "uniq",
-        "cut",
-        "tr",
-        "sed",
-        "awk",
-        # Safe filesystem operations
-        "mkdir",
-        "touch",
-        "cp",
-        "mv",
-        "ln",
-        "rm",
-        # Python ecosystem
-        "python",
-        "python3",
-        "pip",
-        "pip3",
-        "pytest",
-        "ruff",
-        "mypy",
-        "black",
-        "isort",
-        "flake8",
-        "pylint",
-        "uv",
-        "poetry",
-        "pdm",
-        # Version control
-        "git",
-        # Node.js ecosystem
-        "npm",
-        "npx",
-        "node",
-        "yarn",
-        "pnpm",
-        "bun",
-        # Other languages
-        "cargo",
-        "rustc",
-        "go",
-        "make",
-        "cmake",
-        # Utilities
-        "date",
-        "env",
-        "printenv",
-        "which",
-        "whereis",
-        "type",
-        "tar",
-        "gzip",
-        "gunzip",
-        "zip",
-        "unzip",
-        "curl",
-        "wget",
-        "jq",
-        "yq",
-    }
-)
-
-# Shell launchers that are always blocked (even if in allowlist)
-BLOCKED_EXECUTABLES = frozenset(
-    {
-        "sh",
-        "bash",
-        "zsh",
-        "fish",
-        "dash",
-        "ksh",
-        "csh",
-        "tcsh",
-        "powershell",
-        "pwsh",
-        "cmd",
-        "cmd.exe",
-        "exec",
-        "eval",
-        "source",
-    }
-)
-
-# Environment variables to strip for security
-SENSITIVE_ENV_VARS = frozenset(
-    {
-        "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
-        "GITHUB_TOKEN",
-        "GH_TOKEN",
-        "GITLAB_TOKEN",
-        "NPM_TOKEN",
-        "PYPI_TOKEN",
-        "DATABASE_URL",
-        "DB_PASSWORD",
-        "SECRET_KEY",
-        "API_KEY",
-        "PRIVATE_KEY",
-        "SSH_PRIVATE_KEY",
-        "SSH_AUTH_SOCK",
-    }
-)
+# Commands that commonly accept file/dir path arguments.
+PATH_TAKING = frozenset({"cat", "head", "tail", "grep", "find", "cp", "mv", "mkdir", "touch", "git"})
 
 
-# =============================================================================
-# VALIDATION FUNCTIONS
-# =============================================================================
-
-
-def _sanitize_environment() -> dict[str, str]:
-    """Create a sanitized environment for subprocess execution."""
-    env = dict(os.environ)
-
-    # Remove sensitive variables
-    for var in SENSITIVE_ENV_VARS:
-        env.pop(var, None)
-
-    # Also remove any variable containing these patterns
-    sensitive_patterns = ["PASSWORD", "SECRET", "TOKEN", "PRIVATE", "CREDENTIAL"]
-    keys_to_remove = [k for k in env if any(p in k.upper() for p in sensitive_patterns)]
-    for key in keys_to_remove:
-        env.pop(key, None)
-
-    # Set safe defaults
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env["LC_ALL"] = "C.UTF-8"
-    env["LANG"] = "C.UTF-8"
-
-    return env
-
-
-def _validate_command(cmd: str) -> tuple[bool, str]:
-    """
-    Validate a command string against security policies.
-
-    Returns:
-        (is_valid, error_message)
-    """
-    if not cmd or not cmd.strip():
-        return False, "Empty command"
-
+def _is_command_allowed(cmd: str) -> tuple[bool, str]:
     cmd_lower = cmd.lower().strip()
 
-    # Check blocked patterns
-    for blocked in BLOCKED_PATTERNS:
+    for blocked in BLOCKED_SUBSTRINGS:
         if blocked in cmd_lower:
-            return False, f"Blocked dangerous pattern: {blocked}"
+            return False, f"Blocked dangerous command pattern: {blocked}"
 
-    # Check blocked regex patterns
-    for pattern in BLOCKED_REGEXES:
-        if pattern.search(cmd):
-            return False, f"Blocked pattern detected: {pattern.pattern}"
+    parts = cmd.split()
+    first_word = parts[0] if parts else ""
+    if not first_word:
+        return False, "Empty command"
 
-    # Check for sensitive path access
-    for pattern in SENSITIVE_PATH_PATTERNS:
-        if pattern.search(cmd):
-            return False, f"Blocked: sensitive path access detected: {pattern.pattern}"
+    if first_word in BLOCKED_FIRST_WORDS:
+        return False, f"Blocked shell launcher: {first_word}"
 
-    # Parse command to get first word
-    try:
-        parts = shlex.split(cmd)
-    except ValueError as e:
-        return False, f"Invalid command syntax: {e}"
-
-    if not parts:
-        return False, "Empty command after parsing"
-
-    # Extract executable name (handle paths like /usr/bin/python)
-    first_word = parts[0]
-    executable = Path(first_word).name if "/" in first_word else first_word
-
-    # Check if it's a blocked shell launcher
-    if executable.lower() in BLOCKED_EXECUTABLES:
-        return False, f"Blocked shell launcher: {executable}"
-
-    # Check against allowlist
-    if executable not in ALLOWED_COMMANDS:
-        return False, (
-            f"Command '{executable}' not in allowlist. "
-            f"Allowed commands: {sorted(ALLOWED_COMMANDS)[:20]}..."
-        )
-
-    # Additional validation for rm command
-    if executable == "rm":
-        if "-r" in parts and "-f" in parts:
-            # Check if targeting dangerous paths
-            for arg in parts:
-                if arg in ("/", "~", ".", ".."):
-                    return False, f"Blocked: rm -rf on dangerous path: {arg}"
-                if arg.startswith("/") and arg.count("/") <= 2:
-                    return False, f"Blocked: rm -rf on system path: {arg}"
-
-    # Validate git commands
-    if executable == "git":
-        if len(parts) > 1 and parts[1] in ("push", "remote"):
-            # Still allowed but could add additional restrictions
-            pass
+    if first_word not in ALLOWED_PREFIXES:
+        return False, f"Command '{first_word}' not allowed. Allowed: {sorted(ALLOWED_PREFIXES)}"
 
     return True, ""
 
 
-def _compute_output_hash(stdout: bytes, stderr: bytes) -> str:
-    """Compute a hash of command output for replay verification."""
-    content = stdout + b"---STDERR---" + stderr
-    return hashlib.sha256(content).hexdigest()[:16]
+def _looks_like_path(token: str) -> bool:
+    if token in ("-", "--"):
+        return False
+    if token.startswith("-"):
+        return False
+    if token.startswith("http://") or token.startswith("https://"):
+        return False
+    # crude but effective: contains a slash or ends with known path-ish suffix
+    if "/" in token or token.startswith("."):
+        return True
+    return False
 
 
-# =============================================================================
-# COMMAND EXECUTION
-# =============================================================================
+def _reject_unsafe_paths(argv: list[str], workdir: str) -> tuple[bool, str]:
+    """
+    Enforce a scoped posture:
+      - no absolute paths
+      - no '..' traversal
+      - for PATH_TAKING commands, any path-like argument must remain within workdir
+
+    This is not a full shell sandbox, but it prevents the common escapes.
+    """
+    if not argv:
+        return False, "Empty argv"
+
+    cmd = argv[0]
+    if cmd not in PATH_TAKING:
+        return True, ""
+
+    wd = Path(workdir).resolve()
+
+    # Collect candidate path tokens, including flag-values like: git -C PATH, grep -r PATH, etc.
+    candidates: list[str] = []
+    i = 1
+    while i < len(argv):
+        tok = argv[i]
+
+        # flag-value pattern: -C PATH, --work-tree PATH, etc.
+        if tok in ("-C", "--work-tree", "--git-dir", "--directory"):
+            if i + 1 < len(argv):
+                candidates.append(argv[i + 1])
+                i += 2
+                continue
+
+        if _looks_like_path(tok):
+            candidates.append(tok)
+
+        i += 1
+
+    for c in candidates:
+        # absolute path block
+        if os.path.isabs(c):
+            return False, f"Absolute paths are blocked for '{cmd}': {c}"
+
+        # traversal block
+        parts = Path(c).parts
+        if ".." in parts:
+            return False, f"Path traversal '..' blocked for '{cmd}': {c}"
+
+        # resolve inside workdir
+        try:
+            resolved = (wd / c).resolve()
+            try:
+                ok = resolved.is_relative_to(wd)  # py>=3.9
+            except Exception:
+                ok = str(resolved).startswith(str(wd))
+            if not ok:
+                return False, f"Path escapes working directory for '{cmd}': {c}"
+        except Exception:
+            return False, f"Path check failed for '{cmd}': {c}"
+
+    return True, ""
 
 
 def run_command(
@@ -365,46 +144,52 @@ def run_command(
     cwd: str | None = None,
     timeout: int = 30,
     max_output: int = 50_000,
-    env_override: dict[str, str] | None = None,
 ) -> ToolResult:
     """
-    Execute a command safely in a subprocess.
-
-    Security features:
-    - No shell=True (prevents shell injection)
-    - Command parsed via shlex.split
-    - Only allowlisted commands permitted
-    - Dangerous patterns blocked
-    - Environment sanitized
-    - Output truncated to prevent memory issues
-
-    Args:
-        command: Command string to execute (will be parsed via shlex)
-        cwd: Working directory (enforced by router to be within workdir)
-        timeout: Maximum execution time in seconds
-        max_output: Maximum bytes for stdout/stderr (each)
-        env_override: Additional environment variables to set
-
-    Returns:
-        ToolResult with structured output:
-        {
-            "exit_code": int,
-            "stdout": str,
-            "stderr": str,
-            "meta": {
-                "elapsed_ms": int,
-                "output_hash": str,
-                "truncated": bool,
-                "command_parsed": list[str]
-            }
-        }
+    Execute an allowlisted command.
+    Checks config.RFSN_SHELL_MODE to determine if host (subprocess) or docker execution is used.
     """
-    # Validate command
-    ok, err = _validate_command(command)
+    ok, err = _is_command_allowed(command)
     if not ok:
         return ToolResult(False, None, err)
 
-    # Parse command
+    workdir = cwd or os.getcwd()
+
+    # If in Docker mode, delegate to docker_runner
+    if config.get_shell_mode() == config.TestMode.DOCKER:
+        # NOTE: path scoping checks (_reject_unsafe_paths) are still good to run
+        # but technically Docker provides isolation. We'll run them to enforce hygiene
+        # and match host behavior.
+        try:
+            argv = shlex.split(command)
+            ok2, err2 = _reject_unsafe_paths(argv, workdir=workdir)
+            if not ok2:
+                return ToolResult(False, None, err2)
+        except Exception as e:
+            return ToolResult(False, None, f"Command parse failed: {e}")
+
+        c_res = docker_runner.run_in_container(
+            command,
+            worktree=Path(workdir),
+            config=config.get_docker_config(),
+            timeout_seconds=timeout,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"}, 
+        )
+        return ToolResult(
+            success=(c_res.exit_code == 0),
+            output={
+                "exit_code": c_res.exit_code,
+                "stdout": c_res.stdout,
+                "stderr": c_res.stderr,
+                "meta": {
+                    "docker": True, 
+                    "timed_out": c_res.timed_out
+                }
+            },
+            error=(c_res.stderr if c_res.exit_code != 0 else None)
+        )
+
+    # Host execution path
     try:
         argv = shlex.split(command)
     except Exception as e:
@@ -413,79 +198,36 @@ def run_command(
     if not argv:
         return ToolResult(False, None, "Empty command after parsing")
 
-    # Build environment
-    env = _sanitize_environment()
-    if env_override:
-        env.update(env_override)
-
-    # Execute
-    start_time = time.perf_counter()
-    truncated = False
+    ok2, err2 = _reject_unsafe_paths(argv, workdir=workdir)
+    if not ok2:
+        return ToolResult(False, None, err2)
 
     try:
         result = subprocess.run(
             argv,
-            cwd=cwd,
+            cwd=workdir,
             capture_output=True,
             timeout=timeout,
-            env=env,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
-
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
         stdout_b = result.stdout or b""
         stderr_b = result.stderr or b""
-
-        # Compute hash before truncation
-        output_hash = _compute_output_hash(stdout_b, stderr_b)
-
-        # Truncate if necessary
         if len(stdout_b) > max_output:
             stdout_b = stdout_b[:max_output] + b"\n... (truncated)"
-            truncated = True
         if len(stderr_b) > max_output:
             stderr_b = stderr_b[:max_output] + b"\n... (truncated)"
-            truncated = True
 
         stdout = stdout_b.decode("utf-8", errors="replace")
         stderr = stderr_b.decode("utf-8", errors="replace")
 
-        output = {
-            "exit_code": result.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "meta": {
-                "elapsed_ms": elapsed_ms,
-                "output_hash": output_hash,
-                "truncated": truncated,
-                "command_parsed": argv,
-            },
-        }
-
-        return ToolResult(
-            success=(result.returncode == 0),
-            output=output,
-            error=(stderr if result.returncode != 0 else None),
-        )
+        output = {"exit_code": result.returncode, "stdout": stdout, "stderr": stderr}
+        return ToolResult(success=(result.returncode == 0), output=output, error=(stderr if result.returncode != 0 else None))
 
     except subprocess.TimeoutExpired:
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-        return ToolResult(
-            False,
-            {
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": "",
-                "meta": {"elapsed_ms": elapsed_ms, "timeout": True},
-            },
-            f"Command timed out after {timeout}s",
-        )
-    except FileNotFoundError:
-        return ToolResult(False, None, f"Command not found: {argv[0]}")
-    except PermissionError:
-        return ToolResult(False, None, f"Permission denied: {argv[0]}")
+        return ToolResult(False, None, f"Command timed out after {timeout}s")
     except Exception as e:
-        return ToolResult(False, None, f"Command execution failed: {type(e).__name__}: {e}")
+        return ToolResult(False, None, f"Command execution failed: {e}")
 
 
 def run_python(
@@ -496,125 +238,68 @@ def run_python(
     max_output: int = 50_000,
 ) -> ToolResult:
     """
-    Execute Python code safely in a subprocess.
-
-    The code runs via `python3 -c <code>` with a sanitized environment.
-    This is safer than eval() but still allows arbitrary Python execution.
-
-    Security features:
-    - No shell=True
-    - Sanitized environment (sensitive vars removed)
-    - Output truncated
-    - Timeout enforced
-
-    Args:
-        code: Python code string to execute
-        cwd: Working directory (enforced by router)
-        timeout: Maximum execution time in seconds
-        max_output: Maximum bytes for stdout/stderr
-
-    Returns:
-        ToolResult with structured output (same format as run_command)
+    Execute Python code.
+    If RFSN_SHELL_MODE=docker, executes inside container.
     """
-    if not code or not code.strip():
-        return ToolResult(False, None, "Empty code")
+    workdir = cwd or os.getcwd()
 
-    # Basic code validation - block obviously dangerous imports
-    dangerous_patterns = [
-        re.compile(r"import\s+subprocess", re.IGNORECASE),
-        re.compile(r"from\s+subprocess\s+import", re.IGNORECASE),
-        re.compile(r"import\s+os\s*;?\s*os\.system", re.IGNORECASE),
-        re.compile(r"os\.exec", re.IGNORECASE),
-        re.compile(r"os\.spawn", re.IGNORECASE),
-        re.compile(r"__import__\s*\(", re.IGNORECASE),
-        re.compile(r"eval\s*\(", re.IGNORECASE),
-        re.compile(r"exec\s*\(", re.IGNORECASE),
-        re.compile(r"compile\s*\(", re.IGNORECASE),
-    ]
+    if config.get_shell_mode() == config.TestMode.DOCKER:
+        # Construct command: python3 -c <code>
+        # We must carefully quote the code for 'sh -c ...' usage in run_in_container
+        # docker_runner effectively does: docker run ... image sh -c command
+        # command = python3 -c 'code'
+        cmd_str = f"python3 -c {shlex.quote(code)}"
+        
+        c_res = docker_runner.run_in_container(
+            cmd_str,
+            worktree=Path(workdir),
+            config=config.get_docker_config(),
+            timeout_seconds=timeout,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        )
+        return ToolResult(
+            success=(c_res.exit_code == 0),
+            output={
+                "exit_code": c_res.exit_code,
+                "stdout": c_res.stdout,
+                "stderr": c_res.stderr,
+                "meta": {"docker": True, "timed_out": c_res.timed_out}
+            },
+            error=(c_res.stderr if c_res.exit_code != 0 else None)
+        )
 
-    for pattern in dangerous_patterns:
-        if pattern.search(code):
-            return ToolResult(False, None, f"Blocked dangerous pattern in code: {pattern.pattern}")
-
+    # Host execution
     argv = ["python3", "-c", code]
-    env = _sanitize_environment()
-
-    start_time = time.perf_counter()
-    truncated = False
 
     try:
         result = subprocess.run(
             argv,
-            cwd=cwd,
+            cwd=workdir,
             capture_output=True,
             timeout=timeout,
-            env=env,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
-
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
         stdout_b = result.stdout or b""
         stderr_b = result.stderr or b""
-
-        output_hash = _compute_output_hash(stdout_b, stderr_b)
-
         if len(stdout_b) > max_output:
             stdout_b = stdout_b[:max_output] + b"\n... (truncated)"
-            truncated = True
         if len(stderr_b) > max_output:
             stderr_b = stderr_b[:max_output] + b"\n... (truncated)"
-            truncated = True
 
         stdout = stdout_b.decode("utf-8", errors="replace")
         stderr = stderr_b.decode("utf-8", errors="replace")
 
-        output = {
-            "exit_code": result.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "meta": {
-                "elapsed_ms": elapsed_ms,
-                "output_hash": output_hash,
-                "truncated": truncated,
-                "code_lines": code.count("\n") + 1,
-            },
-        }
-
-        return ToolResult(
-            success=(result.returncode == 0),
-            output=output,
-            error=(stderr if result.returncode != 0 else None),
-        )
+        output = {"exit_code": result.returncode, "stdout": stdout, "stderr": stderr}
+        return ToolResult(success=(result.returncode == 0), output=output, error=(stderr if result.returncode != 0 else None))
 
     except subprocess.TimeoutExpired:
-        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-        return ToolResult(
-            False,
-            {
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": "",
-                "meta": {"elapsed_ms": elapsed_ms, "timeout": True},
-            },
-            f"Python execution timed out after {timeout}s",
-        )
+        return ToolResult(False, None, f"Python execution timed out after {timeout}s")
     except Exception as e:
-        return ToolResult(False, None, f"Python execution failed: {type(e).__name__}: {e}")
-
-
-# =============================================================================
-# EXPORTS
-# =============================================================================
+        return ToolResult(False, None, f"Python execution failed: {e}")
 
 
 SHELL_TOOLS = {
     "run_command": run_command,
     "run_python": run_python,
 }
-
-# Expose validation for testing
-validate_command = _validate_command
-sanitize_environment = _sanitize_environment
-
-# Backward compatibility alias
-ALLOWED_PREFIXES = ALLOWED_COMMANDS

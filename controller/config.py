@@ -2,7 +2,7 @@
 """
 Centralized configuration with environment variable fallbacks.
 
-Controls test execution mode (host vs docker) and container parameters.
+Controls test and shell execution modes (host vs docker).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from enum import Enum
 
 
 class TestMode(Enum):
-    """Test execution environment."""
+    """Execution environment mode."""
 
     HOST = "host"
     DOCKER = "docker"
@@ -27,11 +27,20 @@ class DockerConfig:
     memory_limit: str = "2g"
     cpu_limit: float = 2.0
     network_disabled: bool = True
+    workdir: str = "/workspace"
 
 
 def get_test_mode() -> TestMode:
     """Get test execution mode from environment."""
     mode = os.getenv("RFSN_TEST_MODE", "host").lower()
+    if mode == "docker":
+        return TestMode.DOCKER
+    return TestMode.HOST
+
+
+def get_shell_mode() -> TestMode:
+    """Get shell execution mode from environment."""
+    mode = os.getenv("RFSN_SHELL_MODE", "host").lower()
     if mode == "docker":
         return TestMode.DOCKER
     return TestMode.HOST
@@ -44,9 +53,10 @@ def get_docker_config() -> DockerConfig:
         memory_limit=os.getenv("RFSN_DOCKER_MEMORY", "2g"),
         cpu_limit=float(os.getenv("RFSN_DOCKER_CPUS", "2.0")),
         network_disabled=os.getenv("RFSN_DOCKER_NETWORK", "disabled") == "disabled",
+        workdir="/workspace",
     )
 
 
 def use_docker() -> bool:
-    """Convenience function: True if docker mode is enabled."""
+    """Convenience function: True if docker TEST mode is enabled."""
     return get_test_mode() == TestMode.DOCKER
