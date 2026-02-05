@@ -11,11 +11,11 @@ from upstream_learner.arms import (
     ALL_ARMS,
     ARMS_BY_CATEGORY,
     get_arm,
-    get_arms,
+    get_arms_for_category,
     Arm,
 )
+from upstream_learner.arm_registry import MultiArmLearner
 from upstream_learner.outcome_db import OutcomeDB
-from controller.run_task import MultiArmLearner
 
 
 class TestArmRegistry:
@@ -28,7 +28,7 @@ class TestArmRegistry:
     def test_categories_populated(self):
         """Each category has arms."""
         for cat in ["plan", "prompt", "retrieval", "search", "test"]:
-            arms = get_arms(cat)
+            arms = get_arms_for_category(cat)
             assert len(arms) >= 2, f"{cat} should have at least 2 arms"
 
     def test_get_arm_by_key(self):
@@ -50,40 +50,42 @@ class TestMultiArmLearner:
         """Learner selects one arm per category."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.sqlite")
-            learner = MultiArmLearner(db_path=db_path, enabled=True)
+            db = OutcomeDB(db_path)
+            learner = MultiArmLearner(db, categories=["plan", "prompt", "retrieval", "search", "test"])
 
-            arms = learner.select_all_arms(
+            selection = learner.select(
                 context_key="test",
                 seed=42,
             )
 
-            assert len(arms) == 5
+            assert len(selection.arms) == 5
             for cat in ["plan", "prompt", "retrieval", "search", "test"]:
-                assert cat in arms
-                assert isinstance(arms[cat], Arm)
+                assert cat in selection.arms
+                assert isinstance(selection.arms[cat], Arm)
 
     def test_deterministic_with_seed(self):
         """Same seed produces same selections."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.sqlite")
-            learner = MultiArmLearner(db_path=db_path, enabled=True)
+            db = OutcomeDB(db_path)
+            learner = MultiArmLearner(db, categories=["plan", "prompt", "retrieval", "search", "test"])
 
-            arms1 = learner.select_all_arms(context_key="test", seed=42)
-            arms2 = learner.select_all_arms(context_key="test", seed=42)
+            sel1 = learner.select(context_key="test", seed=42)
+            sel2 = learner.select(context_key="test", seed=42)
 
-            for cat in arms1:
-                assert arms1[cat].key == arms2[cat].key
+            for cat in sel1.arms:
+                assert sel1.arms[cat].key == sel2.arms[cat].key
 
     def test_records_outcomes(self):
         """Outcomes are recorded for all arms."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.sqlite")
-            learner = MultiArmLearner(db_path=db_path, enabled=True)
+            db = OutcomeDB(db_path)
+            learner = MultiArmLearner(db, categories=["plan", "prompt", "retrieval", "search", "test"])
 
-            arms = learner.select_all_arms(context_key="test", seed=42)
-            learner.record_outcome(
-                context_key="test",
-                arms=arms,
+            selection = learner.select(context_key="test", seed=42)
+            learner.record(
+                selection=selection,
                 reward=0.8,
                 meta={"task": "demo"},
             )
