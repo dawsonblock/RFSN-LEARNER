@@ -11,8 +11,8 @@ from typing import Any, Mapping
 
 
 @dataclass
-class TestResult:
-    """Test execution result."""
+class TestOutcome:
+    """Test execution result (named to avoid pytest collection)."""
     passed: int = 0
     failed: int = 0
     error: int = 0
@@ -50,7 +50,7 @@ def reward_from_plan(progress: PlanProgress) -> float:
     return max(-1.0, min(1.0, r))
 
 
-def reward_from_tests(result: TestResult) -> float:
+def reward_from_tests(result: TestOutcome) -> float:
     """
     Reward from test results.
     
@@ -80,7 +80,7 @@ def reward_from_tests(result: TestResult) -> float:
 
 def combined_reward(
     plan_progress: PlanProgress | None = None,
-    test_result: TestResult | None = None,
+    test_result: TestOutcome | None = None,
     weights: Mapping[str, float] | None = None,
 ) -> float:
     """

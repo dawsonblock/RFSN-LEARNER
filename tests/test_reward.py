@@ -7,7 +7,7 @@ from __future__ import annotations
 from controller.reward.combine import (
     combined_reward,
     PlanProgress,
-    TestResult,
+    TestOutcome,
     reward_from_plan,
     reward_from_tests,
 )
@@ -55,7 +55,7 @@ class TestTestReward:
 
     def test_fixed_all_tests(self):
         """Fixing all failing tests gets high reward."""
-        result = TestResult(
+        result = TestOutcome(
             passed=10,
             failed=0,
             baseline_passed=7,
@@ -66,7 +66,7 @@ class TestTestReward:
 
     def test_broke_tests(self):
         """Breaking tests gets negative reward."""
-        result = TestResult(
+        result = TestOutcome(
             passed=5,
             failed=5,
             baseline_passed=10,
@@ -88,7 +88,7 @@ class TestCombinedReward:
     def test_blended(self):
         """Blends plan and test rewards."""
         progress = PlanProgress(total_steps=2, completed_steps=2, success=True)
-        result = TestResult(passed=8, failed=2, baseline_passed=7, baseline_failed=3)
+        result = TestOutcome(passed=8, failed=2, baseline_passed=7, baseline_failed=3)
 
         r = combined_reward(plan_progress=progress, test_result=result)
         assert 0 < r < 1
@@ -96,7 +96,7 @@ class TestCombinedReward:
     def test_clamped_to_range(self):
         """Result is always in [-1, 1]."""
         progress = PlanProgress(total_steps=10, completed_steps=10, success=True)
-        result = TestResult(passed=100, failed=0, baseline_passed=50, baseline_failed=50)
+        result = TestOutcome(passed=100, failed=0, baseline_passed=50, baseline_failed=50)
 
         r = combined_reward(plan_progress=progress, test_result=result)
         assert -1 <= r <= 1

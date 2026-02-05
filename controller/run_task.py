@@ -27,7 +27,7 @@ from rfsn.policy import DEV_POLICY
 from rfsn.ledger import AppendOnlyLedger
 
 from .tool_router import ExecutionContext
-from .reward.combine import combined_reward, PlanProgress, TestResult
+from .reward.combine import combined_reward, PlanProgress, TestOutcome
 from .planner.generator import generate_plan
 from .planner.executor import execute_plan
 
@@ -180,7 +180,7 @@ def run_task(
     test_result = None
     if "test_result" in task:
         tr = task["test_result"]
-        test_result = TestResult(
+        test_result = TestOutcome(
             passed=tr.get("passed", 0),
             failed=tr.get("failed", 0),
             baseline_passed=tr.get("baseline_passed", 0),
