@@ -1,82 +1,90 @@
 # controller/tools/sandbox_exec.py
 """
-Unified Docker execution tool.
+Docker-backed execution tool.
 
 This is the canonical execution path for the agent.
-No host execution should be required for normal operation.
+workdir is a HOST path, but the ROUTER MUST force it to context.working_directory.
+Do not accept arbitrary mounts here.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-from controller.docker_runner import ContainerConfig, run_in_container
+from controller.docker_runner import ContainerConfig, ensure_image, run_in_container
 
 
-@dataclass(frozen=True)
-class ToolResult:
-    success: bool
-    output: Any
-    error: str | None = None
+def _make_result(success: bool, output: Any, error: str | None = None) -> dict:
+    """Create a ToolResult-compatible dict."""
+    return {"success": success, "output": output, "error": error}
 
 
 def sandbox_exec(
     command: str,
     *,
-    cwd: str | None = None,
-    timeout: int = 60,
-    memory_mb: int = 512,
-    cpu_shares: float = 1.0,
-) -> ToolResult:
+    workdir: str,
+    timeout_seconds: int = 300,
+    image: str = "python:3.12-slim",
+    memory_limit: str = "2g",
+    cpu_limit: float = 2.0,
+    network_disabled: bool = True,
+    env: Mapping[str, str] | None = None,
+    max_output: int = 100_000,
+) -> dict:
     """
-    Execute command inside Docker sandbox.
-
-    This is the canonical execution path for the agent.
-    No host execution should be required for normal operation.
-
-    Args:
-        command: Shell command to execute
-        cwd: Working directory (mounted to container)
-        timeout: Execution timeout in seconds
-        memory_mb: Memory limit in MB
-        cpu_shares: CPU limit (float)
-
-    Returns:
-        ToolResult with exit_code, stdout, stderr
+    Docker-backed exec. workdir is a HOST path, but the ROUTER MUST force it
+    to context.working_directory. Do not accept arbitrary mounts here.
     """
-    workdir = Path(cwd) if cwd else Path.cwd()
+    host_workdir = Path(workdir).resolve()
 
-    config = ContainerConfig(
-        image="python:3.12-slim",
-        memory_limit=f"{memory_mb}m",
-        cpu_limit=cpu_shares,
-        network_disabled=True,
+    cfg = ContainerConfig(
+        image=image,
+        memory_limit=memory_limit,
+        cpu_limit=float(cpu_limit),
+        network_disabled=bool(network_disabled),
+        workdir="/workspace",
     )
 
     try:
-        result = run_in_container(
-            command=command,
-            worktree=workdir,
-            config=config,
-            timeout_seconds=timeout,
-        )
+        ensure_image(image)
+    except Exception:
+        pass
 
-        return ToolResult(
-            success=result.exit_code == 0,
-            output={
-                "exit_code": result.exit_code,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "timed_out": result.timed_out,
-                "docker": True,
-            },
-            error=result.stderr if result.exit_code != 0 else None,
-        )
+    res = run_in_container(
+        command,
+        host_workdir,
+        config=cfg,
+        timeout_seconds=int(timeout_seconds),
+        env=dict(env) if isinstance(env, dict) else None,
+    )
 
-    except Exception as e:
-        return ToolResult(False, None, f"sandbox_exec failed: {e}")
+    stdout = res.stdout or ""
+    stderr = res.stderr or ""
+    if len(stdout) > int(max_output):
+        stdout = stdout[: int(max_output)] + "\n... (truncated)"
+    if len(stderr) > int(max_output):
+        stderr = stderr[: int(max_output)] + "\n... (truncated)"
+
+    out: dict[str, Any] = {
+        "returncode": res.exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "meta": {
+            "docker": True,
+            "timed_out": bool(res.timed_out),
+            "config": asdict(cfg),
+            "mounted_workdir": str(host_workdir),
+        },
+    }
+
+    ok = (res.exit_code == 0) and (not res.timed_out)
+    err = None
+    if not ok:
+        err = stderr if stderr else ("Container execution timed out" if res.timed_out else "Container command failed")
+
+    return _make_result(success=ok, output=out, error=err)
 
 
 SANDBOX_TOOLS = {

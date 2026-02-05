@@ -78,6 +78,12 @@ def _estimate_bytes(tool: str, arguments: Mapping[str, Any]) -> int:
     if tool in ("run_command", "run_python"):
         mo = arguments.get("max_output")
         return int(mo) if isinstance(mo, int) else 0
+    # P0 fix: charge bytes for sandbox_exec
+    if tool == "sandbox_exec":
+        mo = arguments.get("max_output")
+        if isinstance(mo, int) and mo > 0:
+            return mo
+        return 100_000  # Default sandbox output limit
     return 0
 
 
@@ -121,13 +127,22 @@ def route_tool_call(
                 "sandbox_fallback",
                 extra={"tool": tool_name, "reason": "permission_denied", "fallback": "sandbox_exec"},
             )
-            # Rewrite to sandbox_exec
+            # P1 fix: Properly rewrite to sandbox_exec
+            if tool_name == "run_command":
+                command = str(arguments.get("command", ""))
+            else:
+                # run_python: wrap code with python3 -c and escape quotes
+                import shlex
+                code = str(arguments.get("code", ""))
+                command = f"python3 -c {shlex.quote(code)}"
+            
             return route_tool_call(
                 "sandbox_exec",
                 {
-                    "command": arguments.get("command") or arguments.get("code", ""),
-                    "cwd": arguments.get("cwd", context.working_directory),
-                    "timeout": arguments.get("timeout", 60),
+                    "command": command,
+                    "workdir": context.working_directory,
+                    "timeout_seconds": int(arguments.get("timeout", 60)),
+                    "max_output": int(arguments.get("max_output", 100_000)),
                 },
                 context,
             )
@@ -160,6 +175,13 @@ def route_tool_call(
             if not ok2:
                 logger.warning("shell_path_violation", extra={"tool": tool_name, "cwd": cwd})
                 return ToolResult(False, None, err2)
+        # P0 fix: sandbox_exec workdir must be scoped
+        if tool_name == "sandbox_exec":
+            wd = str(arguments.get("workdir", context.working_directory))
+            ok2, err2 = enforce_path_scope(workdir=context.working_directory, path=wd)
+            if not ok2:
+                logger.warning("sandbox_path_violation", extra={"tool": tool_name, "workdir": wd})
+                return ToolResult(False, None, err2)
 
     # 5) Budgeting (per-turn)
     est = _estimate_bytes(tool_name, arguments)
@@ -180,6 +202,10 @@ def route_tool_call(
     # Force shell cwd to the working directory (ignore caller-provided cwd)
     if tool_name in ("run_command", "run_python"):
         call_args["cwd"] = context.working_directory
+
+    # P0 fix: Force sandbox workdir to context.working_directory (prevent arbitrary mounts)
+    if tool_name == "sandbox_exec":
+        call_args["workdir"] = context.working_directory
 
     # 7) Execute with timing
     try:

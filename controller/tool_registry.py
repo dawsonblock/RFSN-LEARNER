@@ -262,15 +262,22 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             "sandbox_exec",
             [
                 Field("command", True, "str"),
-                Field("cwd", False, "str"),
-                Field("timeout", False, "int"),
-                Field("memory_mb", False, "int"),
-                Field("cpu_shares", False, "int"),
+                Field("workdir", False, "str"),
+                Field("timeout_seconds", False, "int"),
+                Field("image", False, "str"),
+                Field("memory_limit", False, "str"),
+                Field("cpu_limit", False, "int"),
+                Field("network_disabled", False, "bool"),
+                Field("env", False, "dict"),
+                Field("max_output", False, "int"),
             ],
             risk=Risk.HIGH,
-            budget=Budget(calls_per_turn=12, max_bytes=200_000),
+            budget=Budget(calls_per_turn=8, max_bytes=200_000),
             permission=PermissionRule(
-                require_explicit_grant=True, deny_in_replay=True, mutates=True
+                require_explicit_grant=True,
+                restrict_paths_to_workdir=True,   # ✅ CRITICAL: prevent arbitrary host mounts
+                deny_in_replay=True,
+                mutates=True,
             ),
         ),
         # --- code ---
