@@ -1,0 +1,9 @@
+{
+    "id": "example_001",
+    "goal": "list files and read the README",
+    "state_hash": "abc123",
+    "metadata": {
+        "repo": "example/repo",
+        "source": "demo"
+    }
+}
