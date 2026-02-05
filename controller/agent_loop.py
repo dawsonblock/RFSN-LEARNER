@@ -81,6 +81,7 @@ def _append_to_ledger(
             state=_state_snapshot(world),
             action=action,
             decision=decision,
+            extra_payload=extra,
         )
     except Exception:
         pass
