@@ -99,12 +99,12 @@ def route_tool_call(
 
     # 3) Path scoping for filesystem-like tools
     if spec.permission.restrict_paths_to_workdir:
-        if tool_name in ("read_file", "write_file", "list_dir"):
-            p = str(arguments.get("path", ""))
+        if tool_name in ("read_file", "write_file", "list_dir", "get_symbols", "apply_diff"):
+            p = str(arguments.get("path", arguments.get("file_path", "")))
             ok2, err2 = enforce_path_scope(workdir=context.working_directory, path=p)
             if not ok2:
                 return ToolResult(False, None, err2)
-        if tool_name == "search_files":
+        if tool_name in ("search_files", "grep_files"):
             d = str(arguments.get("directory", ""))
             ok2, err2 = enforce_path_scope(workdir=context.working_directory, path=d)
             if not ok2:

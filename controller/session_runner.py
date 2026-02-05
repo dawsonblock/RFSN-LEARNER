@@ -95,33 +95,73 @@ class Session:
     def step(self, user_input: str) -> StepResult:
         """
         Execute a single step of the agent loop.
-        
+
         Args:
             user_input: User's message
-            
+
         Returns:
             StepResult with reply, tool calls, artifacts, errors, and ledger tail
         """
+        from .agent_loop import run_agent_turn, AgentConfig
+        from rfsn.types import WorldSnapshot
+
         self._step_count += 1
         self.context.start_new_turn()
-        
+
         # Add to history
         self.history.append({"role": "user", "content": user_input})
-        
-        # This is a stub - actual agent turn would happen here
-        # For now, return a placeholder result
-        result = StepResult(
-            reply=f"Step {self._step_count}: Received '{user_input[:50]}...' (agent loop not yet wired)",
-            tool_calls=[],
-            artifacts=[],
-            errors=[],
-            ledger_tail=[],
+
+        # Convert history format for agent_loop
+        chat_history = [(h["role"], h["content"]) for h in self.history[:-1]]
+
+        # Create world snapshot
+        world = WorldSnapshot(
+            files_changed=[],
+            tests_status={},
+            git_status=None,
         )
-        
+
+        # Run agent turn
+        try:
+            agent_result = run_agent_turn(
+                user_text=user_input,
+                chat_history=chat_history,
+                world=world,
+                policy=self.config.policy,
+                ledger=self.ledger,
+                exec_ctx=self.context,
+                cfg=AgentConfig(max_steps=6),
+            )
+
+            result = StepResult(
+                reply=agent_result.message,
+                tool_calls=[],  # Would need to track from agent
+                artifacts=[],
+                errors=[],
+                ledger_tail=self._read_ledger_tail(5),
+            )
+
+        except Exception as e:
+            result = StepResult(
+                reply=f"Error executing agent: {e}",
+                tool_calls=[],
+                artifacts=[],
+                errors=[{"code": "agent:internal_error", "message": str(e)}],
+                ledger_tail=[],
+            )
+
         self.history.append({"role": "assistant", "content": result.reply or ""})
-        
+
         return result
-    
+
+    def _read_ledger_tail(self, n: int) -> list[dict[str, Any]]:
+        """Read last n entries from ledger."""
+        try:
+            entries = self.ledger.read_tail(n)
+            return [e for e in entries]
+        except Exception:
+            return []
+
     def reset(self) -> None:
         """Reset session state."""
         self.context.start_new_turn()
