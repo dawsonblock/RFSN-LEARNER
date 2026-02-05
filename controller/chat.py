@@ -139,23 +139,45 @@ def run_interactive_mode(policy: AgentPolicy, replay: ReplayStore | None = None)
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!")
             break
-        
+
         if not user_input:
             continue
-        
+
+        # Reset per-turn budgets
+        context.start_new_turn()
+
         # Meta commands
         if user_input == "/quit":
             print("Goodbye!")
             break
-        
+
         if user_input == "/tools":
             print("\nAvailable tools:")
             for tool in list_available_tools():
                 allowed = "✓" if tool["name"] in policy.allowed_tools else "✗"
-                print(f"  [{allowed}] {tool['name']}: {tool['description']}")
+                risk = tool.get("risk", "?")
+                perm = "🔐" if context.permissions.has_tool(tool["name"]) else ""
+                print(f"  [{allowed}] {tool['name']} ({risk}) {perm}: {tool['description']}")
             print()
             continue
-        
+
+        if user_input.startswith("/grant "):
+            tool = user_input.split(" ", 1)[1].strip()
+            context.permissions.grant_tool(tool)
+            print(f"✓ Granted permission for: {tool}")
+            continue
+
+        if user_input.startswith("/revoke "):
+            tool = user_input.split(" ", 1)[1].strip()
+            context.permissions.revoke_tool(tool)
+            print(f"✗ Revoked permission for: {tool}")
+            continue
+
+        if user_input == "/perms":
+            granted = context.permissions.list_grants()
+            print(f"Granted tools: {granted if granted else '(none)'}")
+            continue
+
         if user_input == "/policy":
             print(f"\nAllowed tools: {sorted(policy.allowed_tools)}")
             print(f"Path prefixes: {policy.allowed_path_prefixes}")

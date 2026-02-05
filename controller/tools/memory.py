@@ -130,24 +130,24 @@ def get_store(db_path: str = "agent_memory.db") -> MemoryStore:
     return _default_store
 
 
-def memory_store(key: str, value: str, tags: list[str] | None = None) -> ToolResult:
+def memory_store(key: str, value: str, tags: list[str] | None = None, db_path: str = "agent_memory.db") -> ToolResult:
     """Store a value in memory."""
-    return get_store().store(key, value, tags)
+    return get_store(db_path).store(key, value, tags)
 
 
-def memory_retrieve(key: str) -> ToolResult:
+def memory_retrieve(key: str, db_path: str = "agent_memory.db") -> ToolResult:
     """Retrieve a value from memory."""
-    return get_store().retrieve(key)
+    return get_store(db_path).retrieve(key)
 
 
-def memory_search(query: str, max_results: int = 10) -> ToolResult:
+def memory_search(query: str, max_results: int = 10, db_path: str = "agent_memory.db") -> ToolResult:
     """Search memory."""
-    return get_store().search(query, max_results=max_results)
+    return get_store(db_path).search(query, max_results=max_results)
 
 
-def memory_delete(key: str) -> ToolResult:
+def memory_delete(key: str, db_path: str = "agent_memory.db") -> ToolResult:
     """Delete from memory."""
-    return get_store().delete(key)
+    return get_store(db_path).delete(key)
 
 
 # Tool registry
@@ -157,3 +157,4 @@ MEMORY_TOOLS = {
     "memory_search": memory_search,
     "memory_delete": memory_delete,
 }
+
