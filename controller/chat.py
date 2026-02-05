@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import uuid
-
+from pathlib import Path
 
 from rfsn.types import WorldSnapshot
 from rfsn.ledger import AppendOnlyLedger
@@ -22,6 +22,9 @@ from .tools.filesystem import ToolResult
 from .planner import execute_plan
 from .planner.generator import generate_plan
 from .learner_bridge import LearnerBridge, LearnerConfig
+from .replay_store import ReplayStore
+from .agent_loop import run_agent_turn, AgentConfig
+from .context_builder import ContextConfig
 
 
 def create_world_snapshot(
@@ -103,7 +106,7 @@ def run_demo_mode():
     print("Demo complete!")
 
 
-def run_interactive_mode(policy: AgentPolicy):
+def run_interactive_mode(policy: AgentPolicy, replay: ReplayStore | None = None):
     """Run an interactive chat loop."""
     session_id = str(uuid.uuid4())[:8]
     context = ExecutionContext(session_id=session_id)
@@ -265,14 +268,21 @@ def main():
     parser.add_argument("--demo", action="store_true", help="Run demo mode")
     parser.add_argument("--dev", action="store_true", help="Use permissive dev policy")
     parser.add_argument("--ledger", default="agent_ledger.jsonl", help="Ledger file path")
+    parser.add_argument("--replay", default="off", choices=["off", "record", "replay"],
+                        help="Replay mode: off|record|replay")
+    parser.add_argument("--replay-file", default="./tmp/replay.jsonl",
+                        help="Replay file path")
     
     args = parser.parse_args()
+    
+    # Initialize replay store
+    replay_store = ReplayStore(path=args.replay_file, mode=args.replay)
     
     if args.demo:
         run_demo_mode()
     else:
         policy = DEV_POLICY if args.dev else DEFAULT_POLICY
-        run_interactive_mode(policy)
+        run_interactive_mode(policy, replay=replay_store)
 
 
 if __name__ == "__main__":
