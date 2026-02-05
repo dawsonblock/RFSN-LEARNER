@@ -115,6 +115,22 @@ def route_tool_call(
 
     # 2) Permission gating for tools marked require_explicit_grant
     if spec.permission.require_explicit_grant and not context.permissions.has_tool(tool_name):
+        # Automatic sandbox fallback for shell tools when host exec blocked
+        if tool_name in ("run_command", "run_python") and "sandbox_exec" in TOOL_REGISTRY:
+            logger.info(
+                "sandbox_fallback",
+                extra={"tool": tool_name, "reason": "permission_denied", "fallback": "sandbox_exec"},
+            )
+            # Rewrite to sandbox_exec
+            return route_tool_call(
+                "sandbox_exec",
+                {
+                    "command": arguments.get("command") or arguments.get("code", ""),
+                    "cwd": arguments.get("cwd", context.working_directory),
+                    "timeout": arguments.get("timeout", 60),
+                },
+                context,
+            )
         logger.info("permission_denied", extra={"tool": tool_name, "user": context.user_id})
         return ToolResult(False, None, f"Permission required for tool: {tool_name}")
 
@@ -234,6 +250,9 @@ def list_available_tools() -> list[dict[str, str]]:
                 "name": name,
                 "risk": str(spec.risk.value),
                 "description": (spec.handler.__doc__ or "No description").strip().split("\n")[0],
+                "require_explicit_grant": spec.permission.require_explicit_grant,
+                "deny_in_replay": spec.permission.deny_in_replay,
+                "mutates": spec.permission.mutates,
             }
         )
     return tools

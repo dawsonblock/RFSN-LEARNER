@@ -15,6 +15,7 @@ from .tools.code import CODE_TOOLS
 from .tools.filesystem import FILESYSTEM_TOOLS
 from .tools.memory import MEMORY_TOOLS
 from .tools.reasoning import REASONING_TOOLS
+from .tools.sandbox_exec import SANDBOX_TOOLS
 from .tools.shell import SHELL_TOOLS
 
 
@@ -65,11 +66,13 @@ class PermissionRule:
     - restrict_paths_to_workdir: file paths must be within working_directory
     - require_explicit_grant: tool blocked unless caller grants permission
     - deny_in_replay: tool blocked during replay mode (for write/destructive ops)
+    - mutates: tool has side effects (writes, executes, deletes)
     """
 
     restrict_paths_to_workdir: bool = False
     require_explicit_grant: bool = False
     deny_in_replay: bool = False
+    mutates: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
     handlers.update(SHELL_TOOLS)
     handlers.update(CODE_TOOLS)
     handlers.update(REASONING_TOOLS)
+    handlers.update(SANDBOX_TOOLS)
 
     def spec(
         name: str,
@@ -134,7 +138,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10, max_bytes=200_000),
             permission=PermissionRule(
-                restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True
+                restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True, mutates=True
             ),
         ),
         "list_dir": spec(
@@ -169,7 +173,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.MEDIUM,
             budget=Budget(calls_per_turn=30),
-            permission=PermissionRule(require_explicit_grant=False),
+            permission=PermissionRule(require_explicit_grant=False, mutates=True),
         ),
         "memory_retrieve": spec(
             "memory_retrieve",
@@ -200,7 +204,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10),
-            permission=PermissionRule(require_explicit_grant=True, deny_in_replay=True),
+            permission=PermissionRule(require_explicit_grant=True, deny_in_replay=True, mutates=True),
         ),
         # --- browser/network ---
         "fetch_url": spec(
@@ -235,7 +239,9 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=12, max_bytes=100_000),
-            permission=PermissionRule(require_explicit_grant=True, restrict_paths_to_workdir=True),
+            permission=PermissionRule(
+                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True, mutates=True
+            ),
         ),
         "run_python": spec(
             "run_python",
@@ -248,7 +254,23 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=6, max_bytes=100_000),
             permission=PermissionRule(
-                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True
+                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True, mutates=True
+            ),
+        ),
+        # --- sandbox execution (Docker-backed) ---
+        "sandbox_exec": spec(
+            "sandbox_exec",
+            [
+                Field("command", True, "str"),
+                Field("cwd", False, "str"),
+                Field("timeout", False, "int"),
+                Field("memory_mb", False, "int"),
+                Field("cpu_shares", False, "int"),
+            ],
+            risk=Risk.HIGH,
+            budget=Budget(calls_per_turn=12, max_bytes=200_000),
+            permission=PermissionRule(
+                require_explicit_grant=True, deny_in_replay=True, mutates=True
             ),
         ),
         # --- code ---
@@ -275,7 +297,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10),
             permission=PermissionRule(
-                restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True
+                restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True, mutates=True
             ),
         ),
         "get_symbols": spec(

@@ -58,7 +58,9 @@ function formatEvent(ev: AnyEvent): { label: string; detail?: string } {
 
     if (t === "tool_call") {
         const tool = String(ev.tool ?? ev?.action?.payload?.tool ?? "");
-        return { label: `tool_call: ${tool}` };
+        const mutates = ev.mutates === true;
+        const mutatesLabel = mutates ? " (MUTATES)" : "";
+        return { label: `tool_call: ${tool}${mutatesLabel}` };
     }
 
     if (t === "tool_result") {

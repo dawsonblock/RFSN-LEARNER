@@ -196,10 +196,10 @@ class TestBudgetEnforcement:
 class TestRegistryCompleteness:
     """Registry must have all expected tools."""
 
-    def test_registry_has_18_tools(self):
-        """Registry should have exactly 18 tools."""
+    def test_registry_has_19_tools(self):
+        """Registry should have exactly 19 tools."""
         registry = build_tool_registry()
-        assert len(registry) == 18
+        assert len(registry) == 19
 
     def test_all_high_risk_require_grant(self):
         """All HIGH risk tools should require explicit grant."""

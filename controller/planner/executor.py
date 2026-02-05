@@ -160,18 +160,65 @@ def execute_plan_with_rollback(
     world: WorldSnapshot,
     *,
     policy: AgentPolicy | None = None,
+    ledger: object | None = None,
 ) -> PlanResult:
     """
     Execute plan with rollback on failure.
 
-    Note: Actual rollback requires reversible actions, which is not
-    always possible. This is a placeholder for future implementation.
+    Uses ledger checkpoint to restore state if execution fails.
+    Rollback works by truncating the ledger to the checkpoint and
+    replaying from that point (deterministic replay model).
     """
+    # Capture checkpoint before execution
+    checkpoint_index = None
+    if ledger is not None and hasattr(ledger, "load_entries"):
+        try:
+            entries = ledger.load_entries()
+            checkpoint_index = len(entries)
+        except Exception:
+            pass
+
     result = execute_plan(plan, context, world, policy=policy, stop_on_failure=True)
 
-    if not result.success:
-        # TODO: Implement actual rollback for reversible actions
-        # For now, just log that we would rollback
-        pass
+    if not result.success and checkpoint_index is not None:
+        # Rollback via ledger truncation
+        rollback_via_replay(ledger, checkpoint_index)
 
     return result
+
+
+def rollback_via_replay(ledger: object, checkpoint_index: int) -> bool:
+    """
+    Rollback ledger to checkpoint by rebuilding from entries up to checkpoint.
+
+    This implements deterministic rollback by:
+    1. Loading all entries up to checkpoint
+    2. Rebuilding ledger from those entries only
+
+    Returns True if rollback succeeded, False otherwise.
+    """
+    if ledger is None:
+        return False
+
+    try:
+        if hasattr(ledger, "load_entries") and hasattr(ledger, "rebuild_from"):
+            entries = ledger.load_entries()
+            ledger.rebuild_from(entries[:checkpoint_index])
+            return True
+        elif hasattr(ledger, "path"):
+            # Fallback: truncate file directly (for AppendOnlyLedger)
+            from pathlib import Path
+
+            path = Path(ledger.path)
+            if not path.exists():
+                return False
+
+            lines = path.read_text().strip().split("\n")
+            truncated = lines[:checkpoint_index]
+            path.write_text("\n".join(truncated) + "\n" if truncated else "")
+            return True
+    except Exception:
+        pass
+
+    return False
+

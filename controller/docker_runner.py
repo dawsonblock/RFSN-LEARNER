@@ -78,6 +78,13 @@ def run_in_container(
     if config.network_disabled:
         docker_cmd.append("--network=none")
 
+    # Production security hardening
+    docker_cmd.extend([
+        "--pids-limit=128",
+        "--read-only",
+        "--security-opt=no-new-privileges",
+    ])
+
     if env:
         for k, v in env.items():
             docker_cmd.extend(["-e", f"{k}={v}"])
