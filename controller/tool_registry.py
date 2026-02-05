@@ -12,6 +12,9 @@ from typing import Any, Callable, Mapping
 from .tools.filesystem import FILESYSTEM_TOOLS
 from .tools.memory import MEMORY_TOOLS
 from .tools.browser import BROWSER_TOOLS
+from .tools.shell import SHELL_TOOLS
+from .tools.code import CODE_TOOLS
+from .tools.reasoning import REASONING_TOOLS
 
 
 class Risk(str, Enum):
@@ -80,6 +83,9 @@ def build_tool_registry() -> dict[str, ToolSpec]:
     handlers.update(FILESYSTEM_TOOLS)
     handlers.update(MEMORY_TOOLS)
     handlers.update(BROWSER_TOOLS)
+    handlers.update(SHELL_TOOLS)
+    handlers.update(CODE_TOOLS)
+    handlers.update(REASONING_TOOLS)
 
     def spec(
         name: str,
@@ -209,6 +215,101 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.LOW,
             budget=Budget(calls_per_turn=10, max_results=10),
+            permission=PermissionRule(),
+        ),
+
+        # --- shell ---
+        "run_command": spec(
+            "run_command",
+            [
+                Field("command", True, "str"),
+                Field("cwd", False, "str"),
+                Field("timeout", False, "int"),
+                Field("max_output", False, "int"),
+            ],
+            risk=Risk.HIGH,
+            budget=Budget(calls_per_turn=20, max_bytes=100_000),
+            permission=PermissionRule(require_explicit_grant=True),
+        ),
+        "run_python": spec(
+            "run_python",
+            [
+                Field("code", True, "str"),
+                Field("timeout", False, "int"),
+                Field("max_output", False, "int"),
+            ],
+            risk=Risk.HIGH,
+            budget=Budget(calls_per_turn=10, max_bytes=100_000),
+            permission=PermissionRule(require_explicit_grant=True),
+        ),
+
+        # --- code ---
+        "grep_files": spec(
+            "grep_files",
+            [
+                Field("pattern", True, "str"),
+                Field("directory", True, "str"),
+                Field("file_pattern", False, "str"),
+                Field("max_results", False, "int"),
+                Field("context_lines", False, "int"),
+            ],
+            risk=Risk.LOW,
+            budget=Budget(calls_per_turn=20, max_results=100),
+            permission=PermissionRule(restrict_paths_to_workdir=True),
+        ),
+        "apply_diff": spec(
+            "apply_diff",
+            [
+                Field("file_path", True, "str"),
+                Field("diff", True, "str"),
+                Field("dry_run", False, "bool"),
+            ],
+            risk=Risk.HIGH,
+            budget=Budget(calls_per_turn=10),
+            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True),
+        ),
+        "get_symbols": spec(
+            "get_symbols",
+            [
+                Field("file_path", True, "str"),
+                Field("max_symbols", False, "int"),
+            ],
+            risk=Risk.LOW,
+            budget=Budget(calls_per_turn=20, max_results=100),
+            permission=PermissionRule(restrict_paths_to_workdir=True),
+        ),
+
+        # --- reasoning (no side effects) ---
+        "think": spec(
+            "think",
+            [
+                Field("thought", True, "str"),
+                Field("category", False, "str"),
+            ],
+            risk=Risk.LOW,
+            budget=Budget(calls_per_turn=50),
+            permission=PermissionRule(),
+        ),
+        "plan": spec(
+            "plan",
+            [
+                Field("goal", True, "str"),
+                Field("steps", True, "list"),
+                Field("current_step", False, "int"),
+            ],
+            risk=Risk.LOW,
+            budget=Budget(calls_per_turn=10),
+            permission=PermissionRule(),
+        ),
+        "ask_user": spec(
+            "ask_user",
+            [
+                Field("question", True, "str"),
+                Field("options", False, "list"),
+                Field("context", False, "str"),
+            ],
+            risk=Risk.LOW,
+            budget=Budget(calls_per_turn=5),
             permission=PermissionRule(),
         ),
     }
