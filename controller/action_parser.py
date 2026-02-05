@@ -3,12 +3,12 @@ Parse LLM output into ProposedAction.
 
 Handles JSON format and simple text parsing.
 """
+
 from __future__ import annotations
 
 import json
 import re
 from typing import Any
-
 
 from rfsn.types import ProposedAction
 
@@ -16,7 +16,7 @@ from rfsn.types import ProposedAction
 def parse_json_action(response: str) -> ProposedAction | None:
     """
     Parse JSON-formatted action from LLM response.
-    
+
     Expected format:
     {
         "action": "tool_call",
@@ -29,15 +29,15 @@ def parse_json_action(response: str) -> ProposedAction | None:
     json_match = re.search(r"\{[\s\S]*\}", response)
     if not json_match:
         return None
-    
+
     try:
         data = json.loads(json_match.group())
     except json.JSONDecodeError:
         return None
-    
+
     # Determine action kind
     action = data.get("action", "tool_call")
-    
+
     # Map to our ActionKind
     kind_map = {
         "tool_call": "tool_call",
@@ -49,9 +49,9 @@ def parse_json_action(response: str) -> ProposedAction | None:
         "permission": "permission_request",
         "permission_request": "permission_request",
     }
-    
+
     kind = kind_map.get(action, "tool_call")
-    
+
     # Build payload
     if kind == "tool_call":
         payload = {
@@ -70,10 +70,10 @@ def parse_json_action(response: str) -> ProposedAction | None:
         }
     else:
         payload = data
-    
+
     justification = data.get("justification", data.get("reason", "No justification provided"))
     risk_tags = tuple(data.get("risk_tags", []))
-    
+
     return ProposedAction(
         kind=kind,
         payload=payload,
@@ -92,17 +92,17 @@ def parse_simple_command(response: str) -> ProposedAction | None:
     response = response.strip()
     if not response.startswith("/"):
         return None
-    
+
     parts = response[1:].split(maxsplit=1)
     if not parts:
         return None
-    
+
     tool_name = parts[0]
     args_str = parts[1] if len(parts) > 1 else ""
-    
+
     # Simple argument parsing
     arguments: dict[str, Any] = {}
-    
+
     if tool_name == "read_file":
         arguments["path"] = args_str.strip()
     elif tool_name == "list_dir":
@@ -126,7 +126,7 @@ def parse_simple_command(response: str) -> ProposedAction | None:
         # Generic: assume single positional arg
         if args_str:
             arguments["input"] = args_str
-    
+
     return ProposedAction(
         kind="tool_call",
         payload={"tool": tool_name, "arguments": arguments},
@@ -151,18 +151,18 @@ def parse_message_response(response: str) -> ProposedAction:
 def parse_llm_response(response: str) -> ProposedAction:
     """
     Parse LLM response into a ProposedAction.
-    
+
     Tries JSON first, then simple commands, then falls back to message.
     """
     # Try JSON format
     action = parse_json_action(response)
     if action:
         return action
-    
+
     # Try simple command format
     action = parse_simple_command(response)
     if action:
         return action
-    
+
     # Fallback to message
     return parse_message_response(response)

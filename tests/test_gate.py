@@ -7,10 +7,11 @@ The gate must:
 - Always return a Decision
 - Never raise exceptions for valid inputs
 """
+
 from __future__ import annotations
 
 from rfsn.gate import gate
-from rfsn.types import StateSnapshot, ProposedAction
+from rfsn.types import ProposedAction, StateSnapshot
 
 
 def make_snapshot(state_hash: str = "abc123") -> StateSnapshot:

@@ -21,7 +21,7 @@ def canonical_json(obj: Any) -> bytes:
             if isinstance(o, set):
                 return sorted(list(o))
             return super().default(o)
-    
+
     return json.dumps(
         obj, cls=SafeEncoder, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")

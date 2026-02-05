@@ -2,12 +2,13 @@
 """
 Tests for unified reward function.
 """
+
 from __future__ import annotations
 
 from controller.reward.combine import (
-    combined_reward,
     PlanProgress,
     TestOutcome,
+    combined_reward,
     reward_from_plan,
     reward_from_tests,
 )

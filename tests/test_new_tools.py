@@ -2,14 +2,15 @@
 """
 Tests for new tool modules: shell, code, reasoning.
 """
+
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-from controller.tools.shell import run_command, run_python, ALLOWED_PREFIXES
-from controller.tools.code import grep_files, get_symbols
-from controller.tools.reasoning import think, plan, ask_user
+from controller.tools.code import get_symbols, grep_files
+from controller.tools.reasoning import ask_user, plan, think
+from controller.tools.shell import ALLOWED_PREFIXES, run_command, run_python
 
 
 class TestShellTools:
@@ -31,7 +32,8 @@ class TestShellTools:
         assert "blocked" in result.error.lower()
 
     def test_run_command_not_in_allowlist(self):
-        result = run_command("curl http://example.com")
+        # Use a command that is definitely not in the allowlist
+        result = run_command("nmap localhost")
         assert result.success is False
 
     def test_run_python_simple(self):

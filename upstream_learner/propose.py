@@ -4,10 +4,10 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
-from .bandit import ArmStats, thompson_select
-from .outcome_db import OutcomeDB
 from rfsn.types import ProposedAction
 
+from .bandit import ArmStats, thompson_select
+from .outcome_db import OutcomeDB
 
 # Planning strategies that can be learned over
 PlanStrategy = Literal["direct", "decompose", "search_first", "ask_user"]
@@ -21,7 +21,7 @@ class Candidate:
 
 
 def context_key_from_task(task: Mapping[str, Any]) -> str:
-    return f"{task.get('benchmark','unknown')}::{task.get('task_id','unknown')}"
+    return f"{task.get('benchmark', 'unknown')}::{task.get('task_id', 'unknown')}"
 
 
 def context_key_from_goal(goal: str) -> str:
@@ -65,16 +65,16 @@ def select_strategy(
 ) -> PlanStrategy:
     """
     Select the best planning strategy for a goal using Thompson sampling.
-    
+
     Learns from past outcomes which strategy works best for different goal types.
     """
     if strategies is None:
         strategies = ALL_STRATEGIES
-    
+
     ctx = context_key_from_goal(goal)
     summary = db.summary(context_key=ctx)
     stats = [ArmStats(arm_key=a, n=n, mean=mu) for (a, n, mu) in summary]
-    
+
     selected = thompson_select(list(strategies), stats, seed=seed)
     return selected  # type: ignore
 
@@ -109,7 +109,7 @@ def record_strategy_outcome(
 ) -> None:
     """
     Record the outcome of using a planning strategy.
-    
+
     This feeds the Thompson sampling algorithm for strategy selection.
     """
     ctx = context_key_from_goal(goal)
@@ -120,4 +120,3 @@ def record_strategy_outcome(
         meta_json=json.dumps(meta, sort_keys=True, separators=(",", ":")),
         ts_utc=ts_utc,
     )
-

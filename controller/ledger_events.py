@@ -2,12 +2,13 @@
 """
 Helper functions for logging first-class events to the ledger.
 """
+
 from __future__ import annotations
 
 from typing import Any, Mapping
 
-from rfsn.types import ProposedAction
 from rfsn.ledger import AppendOnlyLedger
+from rfsn.types import ProposedAction
 
 
 def ledger_info(

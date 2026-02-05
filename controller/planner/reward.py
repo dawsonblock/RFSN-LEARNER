@@ -4,6 +4,7 @@ Reward computation for plan execution outcomes.
 
 This is critical - Thompson sampling is only as good as the scalar you feed it.
 """
+
 from __future__ import annotations
 
 from .types import Plan, PlanResult
@@ -44,18 +45,18 @@ def reward_from_step_outcomes(
 ) -> float:
     """
     Alternative reward computation from raw step counts.
-    
+
     Useful when you don't have a PlanResult object.
     """
     if total == 0:
         return 0.0
-    
+
     completion_rate = completed / total
     failure_rate = failed / total
     denial_rate = denied / total
-    
+
     # Completions are good, failures are bad, denials are slightly bad
     # (denials waste a proposal but aren't as bad as execution failures)
     r = completion_rate - 0.5 * failure_rate - 0.1 * denial_rate
-    
+
     return max(-1.0, min(1.0, r))

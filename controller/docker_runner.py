@@ -1,6 +1,7 @@
 """
 Docker container lifecycle management for isolated task execution.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -50,35 +51,39 @@ def run_in_container(
 ) -> ContainerResult:
     """
     Run a command in a disposable Docker container.
-    
+
     The worktree is mounted read-write at /workspace.
     Network is disabled by default for safety.
     Container is automatically removed after execution.
     """
     if config is None:
         config = ContainerConfig()
-    
+
     container_name = f"rfsn-worker-{uuid.uuid4().hex[:8]}"
-    
+
     docker_cmd = [
-        "docker", "run",
+        "docker",
+        "run",
         "--rm",
-        "--name", container_name,
-        "-v", f"{worktree.resolve()}:{config.workdir}",
-        "-w", config.workdir,
+        "--name",
+        container_name,
+        "-v",
+        f"{worktree.resolve()}:{config.workdir}",
+        "-w",
+        config.workdir,
         f"--memory={config.memory_limit}",
         f"--cpus={config.cpu_limit}",
     ]
-    
+
     if config.network_disabled:
         docker_cmd.append("--network=none")
-    
+
     if env:
         for k, v in env.items():
             docker_cmd.extend(["-e", f"{k}={v}"])
-    
+
     docker_cmd.extend([config.image, "sh", "-c", command])
-    
+
     try:
         result = subprocess.run(
             docker_cmd,
@@ -112,7 +117,7 @@ def ensure_image(image: str) -> bool:
     )
     if check.returncode == 0:
         return True
-    
+
     pull = subprocess.run(
         ["docker", "pull", image],
         capture_output=True,

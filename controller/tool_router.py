@@ -8,24 +8,29 @@ Routes tool_call payloads to implementations WITH:
 - Budgets (per-turn)
 - Path scope enforcement
 - Permission checks
+- Execution timing and audit logging
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from .tools.filesystem import ToolResult
-from .tool_registry import (
-    build_tool_registry,
-    validate_arguments,
-    enforce_path_scope,
-)
 from .budget_enforcer import BudgetEnforcer
 from .permissions import PermissionState
+from .tool_registry import (
+    build_tool_registry,
+    enforce_path_scope,
+    validate_arguments,
+)
+from .tools.filesystem import ToolResult
 
+# Configure logger for tool execution audit
+logger = logging.getLogger(__name__)
 
 TOOL_REGISTRY = build_tool_registry()
 
@@ -33,6 +38,7 @@ TOOL_REGISTRY = build_tool_registry()
 @dataclass
 class ExecutionContext:
     """Context for tool execution."""
+
     session_id: str
     user_id: str = "default"
     working_directory: str = "./"
@@ -69,6 +75,9 @@ def _estimate_bytes(tool: str, arguments: Mapping[str, Any]) -> int:
         content = arguments.get("content")
         if isinstance(content, str):
             return len(content.encode("utf-8", errors="ignore"))
+    if tool in ("run_command", "run_python"):
+        mo = arguments.get("max_output")
+        return int(mo) if isinstance(mo, int) else 0
     return 0
 
 
@@ -84,24 +93,34 @@ def route_tool_call(
     3. Permission check
     4. Path scope check
     5. Budget check
-    6. Execute
+    6. Execute with timing
+
+    Returns ToolResult with execution metadata when applicable.
     """
+    start_time = time.perf_counter()
+
     if tool_name not in TOOL_REGISTRY:
-        return ToolResult(False, None, f"Unknown tool: {tool_name}. Available: {sorted(TOOL_REGISTRY.keys())}")
+        logger.warning("unknown_tool", extra={"tool": tool_name})
+        return ToolResult(
+            False, None, f"Unknown tool: {tool_name}. Available: {sorted(TOOL_REGISTRY.keys())}"
+        )
 
     spec = TOOL_REGISTRY[tool_name]
 
     # 1) Schema validation
     ok, err = validate_arguments(spec, dict(arguments))
     if not ok:
+        logger.warning("schema_validation_failed", extra={"tool": tool_name, "error": err})
         return ToolResult(False, None, f"Invalid arguments for {tool_name}: {err}")
 
     # 2) Permission gating for tools marked require_explicit_grant
     if spec.permission.require_explicit_grant and not context.permissions.has_tool(tool_name):
+        logger.info("permission_denied", extra={"tool": tool_name, "user": context.user_id})
         return ToolResult(False, None, f"Permission required for tool: {tool_name}")
 
     # 3) Replay mode blocking for destructive tools
     if context.replay_mode == "replay" and spec.permission.deny_in_replay:
+        logger.info("replay_blocked", extra={"tool": tool_name})
         return ToolResult(False, None, f"Tool denied in replay mode: {tool_name}")
 
     # 4) Path scoping for filesystem-like tools
@@ -110,34 +129,75 @@ def route_tool_call(
             p = str(arguments.get("path", arguments.get("file_path", "")))
             ok2, err2 = enforce_path_scope(workdir=context.working_directory, path=p)
             if not ok2:
+                logger.warning("path_scope_violation", extra={"tool": tool_name, "path": p})
                 return ToolResult(False, None, err2)
         if tool_name in ("search_files", "grep_files"):
             d = str(arguments.get("directory", ""))
             ok2, err2 = enforce_path_scope(workdir=context.working_directory, path=d)
             if not ok2:
+                logger.warning("path_scope_violation", extra={"tool": tool_name, "directory": d})
+                return ToolResult(False, None, err2)
+        # Shell tools: cwd must be inside workdir
+        if tool_name in ("run_command", "run_python"):
+            cwd = str(arguments.get("cwd", context.working_directory))
+            ok2, err2 = enforce_path_scope(workdir=context.working_directory, path=cwd)
+            if not ok2:
+                logger.warning("shell_path_violation", extra={"tool": tool_name, "cwd": cwd})
                 return ToolResult(False, None, err2)
 
-    # 4) Budgeting (per-turn)
+    # 5) Budgeting (per-turn)
     est = _estimate_bytes(tool_name, arguments)
-    ok3, err3 = context.budgets.check_and_charge(tool=tool_name, budget=spec.budget, estimated_bytes=est)
+    ok3, err3 = context.budgets.check_and_charge(
+        tool=tool_name, budget=spec.budget, estimated_bytes=est
+    )
     if not ok3:
+        logger.warning("budget_exceeded", extra={"tool": tool_name, "estimated_bytes": est})
         return ToolResult(False, None, f"Budget denied for {tool_name}: {err3}")
 
-    # 5) Inject db_path for memory tools unless caller provided it
+    # 6) Prepare call arguments
     call_args = dict(arguments)
+
+    # Inject db_path for memory tools unless caller provided it
     if tool_name.startswith("memory_") and "db_path" not in call_args:
         call_args["db_path"] = context.memory_db_path
 
-    # 6) Execute
+    # Force shell cwd to the working directory (ignore caller-provided cwd)
+    if tool_name in ("run_command", "run_python"):
+        call_args["cwd"] = context.working_directory
+
+    # 7) Execute with timing
     try:
         result = spec.handler(**call_args)
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Log successful execution
+        logger.debug(
+            "tool_executed",
+            extra={
+                "tool": tool_name,
+                "success": True,
+                "elapsed_ms": elapsed_ms,
+                "session": context.session_id,
+            },
+        )
+
         # Normalize ToolResult-ish objects
         if hasattr(result, "success") and hasattr(result, "output"):
             return ToolResult(bool(result.success), result.output, getattr(result, "error", None))
         return ToolResult(True, result, None)
+
     except TypeError as e:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        logger.error(
+            "tool_type_error", extra={"tool": tool_name, "error": str(e), "elapsed_ms": elapsed_ms}
+        )
         return ToolResult(False, None, f"Invalid arguments for {tool_name}: {e}")
     except Exception as e:
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        logger.error(
+            "tool_execution_error",
+            extra={"tool": tool_name, "error": str(e), "elapsed_ms": elapsed_ms},
+        )
         return ToolResult(False, None, f"Tool execution failed: {e}")
 
 
@@ -169,11 +229,13 @@ def list_available_tools() -> list[dict[str, str]]:
     """List all available tools with metadata."""
     tools = []
     for name, spec in TOOL_REGISTRY.items():
-        tools.append({
-            "name": name,
-            "risk": str(spec.risk.value),
-            "description": (spec.handler.__doc__ or "No description").strip().split("\n")[0],
-        })
+        tools.append(
+            {
+                "name": name,
+                "risk": str(spec.risk.value),
+                "description": (spec.handler.__doc__ or "No description").strip().split("\n")[0],
+            }
+        )
     return tools
 
 

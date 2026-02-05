@@ -4,6 +4,7 @@ Policy allow/deny tests.
 
 Tests for each tool and path constraint.
 """
+
 from __future__ import annotations
 
 from rfsn.policy import DEFAULT_POLICY, DEV_POLICY

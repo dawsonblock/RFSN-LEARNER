@@ -1,6 +1,7 @@
 """
 Test execution with resource limits and result parsing.
 """
+
 from __future__ import annotations
 
 import re
@@ -30,29 +31,29 @@ def _parse_pytest_output(output: str) -> tuple[int, int, int, int]:
     passed = 0
     failed = 0
     errors = 0
-    
+
     # Look for summary line like "===== 5 passed, 2 failed in 1.23s ====="
     summary_match = re.search(
         r"=+\s*([\d\w\s,]+)\s+in\s+[\d.]+s?\s*=+",
         output,
         re.IGNORECASE,
     )
-    
+
     if summary_match:
         summary = summary_match.group(1)
-        
+
         passed_match = re.search(r"(\d+)\s+passed", summary)
         if passed_match:
             passed = int(passed_match.group(1))
-        
+
         failed_match = re.search(r"(\d+)\s+failed", summary)
         if failed_match:
             failed = int(failed_match.group(1))
-        
+
         error_match = re.search(r"(\d+)\s+error", summary)
         if error_match:
             errors = int(error_match.group(1))
-    
+
     total = passed + failed + errors
     return total, passed, failed, errors
 
@@ -65,15 +66,15 @@ def _parse_unittest_output(output: str) -> tuple[int, int, int, int]:
     # Match "Ran X tests"
     ran_match = re.search(r"Ran\s+(\d+)\s+tests?", output)
     total = int(ran_match.group(1)) if ran_match else 0
-    
+
     # Check for OK (all passed)
     if re.search(r"^OK\s*$", output, re.MULTILINE):
         return total, total, 0, 0
-    
+
     # Parse failures and errors
     failed = 0
     errors = 0
-    
+
     result_match = re.search(
         r"FAILED\s*\((?:failures=(\d+))?(?:,?\s*errors=(\d+))?\)",
         output,
@@ -81,7 +82,7 @@ def _parse_unittest_output(output: str) -> tuple[int, int, int, int]:
     if result_match:
         failed = int(result_match.group(1) or 0)
         errors = int(result_match.group(2) or 0)
-    
+
     passed = max(0, total - failed - errors)
     return total, passed, failed, errors
 
@@ -96,30 +97,31 @@ def run_tests(
 ) -> TestResult:
     """
     Run tests in the worktree with resource limits.
-    
+
     Supports pytest and unittest output parsing.
     If use_docker=False, runs directly (less isolation).
     """
     worktree = Path(worktree).resolve()
-    
+
     if use_docker:
         config = ContainerConfig(
             memory_limit=memory_limit,
             network_disabled=True,
         )
-        
+
         result = run_in_container(
             test_command,
             worktree,
             config=config,
             timeout_seconds=timeout_seconds,
         )
-        
+
         output = result.stdout + "\n" + result.stderr
         exit_code = result.exit_code
         timed_out = result.timed_out
     else:
         import subprocess
+
         try:
             proc = subprocess.run(
                 test_command,
@@ -136,15 +138,15 @@ def run_tests(
             output = "Test execution timed out"
             exit_code = -1
             timed_out = True
-    
+
     # Try pytest parsing first, then unittest
     total, passed, failed, errors = _parse_pytest_output(output)
     if total == 0:
         total, passed, failed, errors = _parse_unittest_output(output)
-    
+
     # Determine overall pass/fail
     tests_passed = (exit_code == 0) and (failed == 0) and (errors == 0)
-    
+
     return TestResult(
         passed=tests_passed,
         total_tests=total,

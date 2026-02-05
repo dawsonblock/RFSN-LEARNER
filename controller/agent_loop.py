@@ -6,6 +6,7 @@ Supports:
 - Per-tool schema validation (pre-gate)
 - Replay/record mode for deterministic runs
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -13,23 +14,23 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from rfsn.ledger import AppendOnlyLedger
-from rfsn.types import ProposedAction, WorldSnapshot
-from rfsn.policy import AgentPolicy, DEFAULT_POLICY
-
-from controller.prompts import SYSTEM_PROMPT, user_prompt
-from controller.context_builder import build_context, ContextConfig
-from controller.action_io import parse_llm_json, ProposalError
+from controller.action_io import ProposalError, parse_llm_json
 from controller.agent_gate import agent_gate
-from controller.tool_router import route_action, ExecutionContext
+from controller.context_builder import ContextConfig, build_context
 from controller.llm_client import LLMClient, LLMConfig
+from controller.prompts import SYSTEM_PROMPT, user_prompt
+from controller.replay_store import ReplayRecord, ReplayStore
+from controller.tool_router import ExecutionContext, route_action
 from controller.validate_tool_call import validate_tool_call
-from controller.replay_store import ReplayStore, ReplayRecord
+from rfsn.ledger import AppendOnlyLedger
+from rfsn.policy import DEFAULT_POLICY, AgentPolicy
+from rfsn.types import ProposedAction, WorldSnapshot
 
 
 @dataclass
 class AgentConfig:
     """Configuration for the agent loop."""
+
     max_steps: int = 6
     context_cfg: ContextConfig | None = None
     llm_cfg: LLMConfig | None = None
@@ -45,6 +46,7 @@ class AgentConfig:
 @dataclass
 class AgentResult:
     """Result of an agent turn."""
+
     message: str
     steps_taken: int
     actions_proposed: int
@@ -156,7 +158,9 @@ def run_agent_turn(
             _append_to_ledger(
                 ledger,
                 world=world,
-                action=ProposedAction(kind="tool_call", payload={"error": "llm_call"}, justification="LLM call failed"),
+                action=ProposedAction(
+                    kind="tool_call", payload={"error": "llm_call"}, justification="LLM call failed"
+                ),
                 decision=f"error:llm_call:{e}",
             )
             return AgentResult(
@@ -175,8 +179,12 @@ def run_agent_turn(
             _append_to_ledger(
                 ledger,
                 world=world,
-                action=ProposedAction(kind="message_send", payload={"message": "LLM_JSON_PARSE_ERROR"}, justification="Parse failed"),
-                decision=f"deny:llm_json_parse_error",
+                action=ProposedAction(
+                    kind="message_send",
+                    payload={"message": "LLM_JSON_PARSE_ERROR"},
+                    justification="Parse failed",
+                ),
+                decision="deny:llm_json_parse_error",
                 extra={"error": str(e), "raw_head": raw[:500]},
             )
             return AgentResult(
@@ -240,9 +248,18 @@ def run_agent_turn(
                     _append_to_ledger(
                         ledger,
                         world=world,
-                        action=ProposedAction(kind="tool_call", payload={"kind": action.kind, "replayed": True}, justification="Replay"),
+                        action=ProposedAction(
+                            kind="tool_call",
+                            payload={"kind": action.kind, "replayed": True},
+                            justification="Replay",
+                        ),
                         decision="info:tool_result_replay",
-                        extra={"ok": rec.ok, "summary": rec.summary, "action_id": aid, "step": step},
+                        extra={
+                            "ok": rec.ok,
+                            "summary": rec.summary,
+                            "action_id": aid,
+                            "step": step,
+                        },
                     )
                     local_history.append(("tool", f"{rec.tool} (replay): {rec.summary}"))
                     actions_replayed += 1
@@ -268,6 +285,8 @@ def run_agent_turn(
                 if replay is not None and replay.mode == "record":
                     aid = _action_id(action)
                     if isinstance(args, dict):
+                        # Store structured output for replay (especially useful for shell tools)
+                        data = result.output if isinstance(result.output, dict) else None
                         replay.put(
                             ReplayRecord(
                                 action_id=aid,
@@ -275,14 +294,16 @@ def run_agent_turn(
                                 args=dict(args),
                                 ok=ok,
                                 summary=summary[:500],
-                                data=None,
+                                data=data,
                             )
                         )
 
                 _append_to_ledger(
                     ledger,
                     world=world,
-                    action=ProposedAction(kind="tool_call", payload={"tool": tool}, justification="Tool executed"),
+                    action=ProposedAction(
+                        kind="tool_call", payload={"tool": tool}, justification="Tool executed"
+                    ),
                     decision="info:tool_result",
                     extra={"ok": ok, "summary": summary[:500], "step": step},
                 )

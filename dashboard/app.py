@@ -6,23 +6,23 @@ A clean, modern dashboard for monitoring and analyzing the RFSN learner.
 
 Run with: streamlit run dashboard/app.py
 """
+
 from __future__ import annotations
 
-import streamlit as st
+import sys
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from pathlib import Path
-from datetime import datetime, timedelta
-import sys
+import streamlit as st
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from upstream_learner import (
-    OutcomeDB,
     LearningAnalytics,
-    MultiArmLearner,
+    OutcomeDB,
     get_arms_for_category,
     list_categories,
 )
@@ -38,7 +38,8 @@ st.set_page_config(
 )
 
 # Custom CSS for white background and clean styling
-st.markdown("""
+st.markdown(
+    """
 <style>
     /* Main app background - clean white */
     .stApp {
@@ -113,12 +114,15 @@ st.markdown("""
         border-radius: 12px;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # =============================================================================
 # DATABASE CONNECTION
 # =============================================================================
 DEFAULT_DB_PATH = "./tmp/outcomes.sqlite"
+
 
 @st.cache_resource
 def get_db(db_path: str) -> OutcomeDB | None:
@@ -131,6 +135,7 @@ def get_db(db_path: str) -> OutcomeDB | None:
     except Exception:
         return None
 
+
 @st.cache_resource
 def get_analytics(db_path: str) -> LearningAnalytics | None:
     """Get analytics engine (cached)."""
@@ -139,6 +144,7 @@ def get_analytics(db_path: str) -> LearningAnalytics | None:
         return LearningAnalytics(db)
     return None
 
+
 # =============================================================================
 # SIDEBAR
 # =============================================================================
@@ -146,16 +152,16 @@ with st.sidebar:
     st.image("https://via.placeholder.com/150x50?text=RFSN", width=150)
     st.title("🧠 RFSN Learner")
     st.divider()
-    
+
     # Database path
     db_path = st.text_input("Database Path", value=DEFAULT_DB_PATH)
-    
+
     if st.button("🔄 Refresh Data"):
         st.cache_resource.clear()
         st.rerun()
-    
+
     st.divider()
-    
+
     # Navigation
     page = st.radio(
         "Navigation",
@@ -173,17 +179,17 @@ db = get_db(db_path)
 
 if page == "📊 Overview":
     st.title("📊 Dashboard Overview")
-    
+
     if not analytics:
         st.warning("⚠️ No database found. Run some tasks first to generate data.")
         st.info(f"Looking for: `{db_path}`")
     else:
         # Get summary
         summary = analytics.experiment_summary()
-        
+
         # Metrics row
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
             st.metric("Total Trials", f"{summary.total_trials:,}")
         with col2:
@@ -192,27 +198,29 @@ if page == "📊 Overview":
             st.metric("Best Arm", summary.best_arm[:20] if summary.best_arm else "N/A")
         with col4:
             st.metric("Best Mean Reward", f"{summary.best_mean:.3f}")
-        
+
         st.divider()
-        
+
         # Two columns: Performance chart + Top arms table
         col_left, col_right = st.columns([2, 1])
-        
+
         with col_left:
             st.subheader("Arm Performance Distribution")
             if summary.arms:
-                df = pd.DataFrame([
-                    {
-                        "Arm": a.arm_key[:30],
-                        "Count": a.count,
-                        "Mean Reward": a.mean_reward,
-                    }
-                    for a in summary.arms[:15]
-                ])
-                
+                df = pd.DataFrame(
+                    [
+                        {
+                            "Arm": a.arm_key[:30],
+                            "Count": a.count,
+                            "Mean Reward": a.mean_reward,
+                        }
+                        for a in summary.arms[:15]
+                    ]
+                )
+
                 fig = px.bar(
-                    df, 
-                    x="Arm", 
+                    df,
+                    x="Arm",
                     y="Mean Reward",
                     color="Count",
                     color_continuous_scale="Blues",
@@ -227,26 +235,26 @@ if page == "📊 Overview":
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No arm data available yet.")
-        
+
         with col_right:
             st.subheader("Top Performers")
             if summary.arms:
                 for i, arm in enumerate(summary.arms[:5], 1):
-                    color = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
+                    color = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i - 1]
                     st.markdown(f"""
                     {color} **{arm.arm_key[:25]}**  
                     Reward: `{arm.mean_reward:.3f}` | Uses: `{arm.count}`
                     """)
             else:
                 st.info("No rankings yet.")
-        
+
         # Categories overview
         st.divider()
         st.subheader("📂 Arms by Category")
-        
+
         categories = list_categories()
         cols = st.columns(len(categories))
-        
+
         for i, cat in enumerate(categories):
             with cols[i]:
                 arms = get_arms_for_category(cat)
@@ -254,33 +262,35 @@ if page == "📊 Overview":
 
 elif page == "🎯 Arm Performance":
     st.title("🎯 Arm Performance Analysis")
-    
+
     if not analytics:
         st.warning("⚠️ No database found.")
     else:
         # Filter by category
         categories = ["All"] + list(list_categories())
         selected_cat = st.selectbox("Filter by Category", categories)
-        
+
         rankings = analytics.arm_rankings(limit=50)
-        
+
         if selected_cat != "All":
             rankings = [r for r in rankings if r.arm_key.startswith(f"{selected_cat}::")]
-        
+
         if rankings:
             # Performance table
-            df = pd.DataFrame([
-                {
-                    "Arm": r.arm_key,
-                    "Category": r.arm_key.split("::")[0] if "::" in r.arm_key else "unknown",
-                    "Count": r.count,
-                    "Mean Reward": round(r.mean_reward, 4),
-                    "Min": round(r.min_reward, 4),
-                    "Max": round(r.max_reward, 4),
-                }
-                for r in rankings
-            ])
-            
+            df = pd.DataFrame(
+                [
+                    {
+                        "Arm": r.arm_key,
+                        "Category": r.arm_key.split("::")[0] if "::" in r.arm_key else "unknown",
+                        "Count": r.count,
+                        "Mean Reward": round(r.mean_reward, 4),
+                        "Min": round(r.min_reward, 4),
+                        "Max": round(r.max_reward, 4),
+                    }
+                    for r in rankings
+                ]
+            )
+
             st.dataframe(
                 df,
                 use_container_width=True,
@@ -291,9 +301,9 @@ elif page == "🎯 Arm Performance":
                         max_value=1,
                         format="%.3f",
                     ),
-                }
+                },
             )
-            
+
             # Scatter plot
             st.subheader("Reward vs Usage")
             fig = px.scatter(
@@ -316,33 +326,37 @@ elif page == "🎯 Arm Performance":
 
 elif page == "📈 Learning Curves":
     st.title("📈 Learning Curves")
-    
+
     if not analytics:
         st.warning("⚠️ No database found.")
     else:
         # Get learning curve
         window = st.slider("Rolling Window Size", 5, 50, 10)
         curve = analytics.learning_curve(window=window)
-        
+
         if curve.points:
             df = pd.DataFrame(curve.points, columns=["Index", "Window Mean", "Cumulative Mean"])
-            
+
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=df["Index"],
-                y=df["Window Mean"],
-                mode="lines",
-                name="Rolling Mean",
-                line=dict(color="#4361ee", width=2),
-            ))
-            fig.add_trace(go.Scatter(
-                x=df["Index"],
-                y=df["Cumulative Mean"],
-                mode="lines",
-                name="Cumulative Mean",
-                line=dict(color="#06b6d4", width=2, dash="dash"),
-            ))
-            
+            fig.add_trace(
+                go.Scatter(
+                    x=df["Index"],
+                    y=df["Window Mean"],
+                    mode="lines",
+                    name="Rolling Mean",
+                    line=dict(color="#4361ee", width=2),
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df["Index"],
+                    y=df["Cumulative Mean"],
+                    mode="lines",
+                    name="Cumulative Mean",
+                    line=dict(color="#06b6d4", width=2, dash="dash"),
+                )
+            )
+
             fig.update_layout(
                 template="plotly_white",
                 plot_bgcolor="white",
@@ -353,7 +367,7 @@ elif page == "📈 Learning Curves":
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
             )
             st.plotly_chart(fig, use_container_width=True)
-            
+
             # Stats
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -368,25 +382,27 @@ elif page == "📈 Learning Curves":
 
 elif page == "📋 Outcomes":
     st.title("📋 Recent Outcomes")
-    
+
     if not db:
         st.warning("⚠️ No database found.")
     else:
         limit = st.slider("Number of outcomes", 10, 200, 50)
         outcomes = db.recent_outcomes(limit=limit)
-        
+
         if outcomes:
-            df = pd.DataFrame([
-                {
-                    "Timestamp": o.ts_utc[:19] if o.ts_utc else "",
-                    "Task ID": o.task_id[:20] if o.task_id else "",
-                    "Arm": o.arm_key[:30],
-                    "Reward": round(o.reward, 4),
-                    "Seed": o.seed,
-                }
-                for o in outcomes
-            ])
-            
+            df = pd.DataFrame(
+                [
+                    {
+                        "Timestamp": o.ts_utc[:19] if o.ts_utc else "",
+                        "Task ID": o.task_id[:20] if o.task_id else "",
+                        "Arm": o.arm_key[:30],
+                        "Reward": round(o.reward, 4),
+                        "Seed": o.seed,
+                    }
+                    for o in outcomes
+                ]
+            )
+
             st.dataframe(
                 df,
                 use_container_width=True,
@@ -397,9 +413,9 @@ elif page == "📋 Outcomes":
                         max_value=1,
                         format="%.3f",
                     ),
-                }
+                },
             )
-            
+
             # Reward distribution
             st.subheader("Reward Distribution")
             rewards = [o.reward for o in outcomes]

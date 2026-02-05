@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict
 from typing import Any, Mapping
 
-from .crypto import sha256_json, sha256_bytes, canonical_json
+from .crypto import canonical_json, sha256_bytes, sha256_json
 from .types import LedgerEntry, ProposedAction, StateSnapshot
 
 

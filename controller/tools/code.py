@@ -2,11 +2,10 @@
 """
 Code intelligence tools - search, diff, symbols.
 """
+
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,7 @@ from typing import Any
 @dataclass(frozen=True)
 class ToolResult:
     """Result from a tool execution."""
+
     success: bool
     output: Any
     error: str | None = None
@@ -70,28 +70,36 @@ def grep_files(
                         end = min(len(lines), i + context_lines + 1)
                         context = lines[start:end]
 
-                        matches.append({
-                            "file": str(file_path.relative_to(dir_path)),
-                            "line": i + 1,
-                            "match": line.strip(),
-                            "context": context,
-                        })
+                        matches.append(
+                            {
+                                "file": str(file_path.relative_to(dir_path)),
+                                "line": i + 1,
+                                "match": line.strip(),
+                                "context": context,
+                            }
+                        )
 
                         if len(matches) >= max_results:
-                            return ToolResult(True, {
-                                "matches": matches,
-                                "truncated": True,
-                                "total_shown": len(matches),
-                            })
+                            return ToolResult(
+                                True,
+                                {
+                                    "matches": matches,
+                                    "truncated": True,
+                                    "total_shown": len(matches),
+                                },
+                            )
 
             except (PermissionError, UnicodeDecodeError):
                 continue
 
-        return ToolResult(True, {
-            "matches": matches,
-            "truncated": False,
-            "total_shown": len(matches),
-        })
+        return ToolResult(
+            True,
+            {
+                "matches": matches,
+                "truncated": False,
+                "total_shown": len(matches),
+            },
+        )
 
     except re.error as e:
         return ToolResult(False, None, f"Invalid regex pattern: {e}")
@@ -178,18 +186,24 @@ def apply_diff(
         result = "".join(result_lines)
 
         if dry_run:
-            return ToolResult(True, {
-                "mode": "dry_run",
-                "preview": result[:2000] + ("..." if len(result) > 2000 else ""),
-                "hunks_applied": len(hunks),
-            })
+            return ToolResult(
+                True,
+                {
+                    "mode": "dry_run",
+                    "preview": result[:2000] + ("..." if len(result) > 2000 else ""),
+                    "hunks_applied": len(hunks),
+                },
+            )
 
         path.write_text(result, encoding="utf-8")
-        return ToolResult(True, {
-            "mode": "applied",
-            "file": str(path),
-            "hunks_applied": len(hunks),
-        })
+        return ToolResult(
+            True,
+            {
+                "mode": "applied",
+                "file": str(path),
+                "hunks_applied": len(hunks),
+            },
+        )
 
     except Exception as e:
         return ToolResult(False, None, f"Diff application failed: {e}")
@@ -229,11 +243,13 @@ def get_symbols(
             class_match = class_pattern.match(line)
             if class_match:
                 current_class = class_match.group(1)
-                symbols.append({
-                    "type": "class",
-                    "name": current_class,
-                    "line": i + 1,
-                })
+                symbols.append(
+                    {
+                        "type": "class",
+                        "name": current_class,
+                        "line": i + 1,
+                    }
+                )
 
             # Check for function definition
             func_match = func_pattern.match(line)
@@ -247,20 +263,25 @@ def get_symbols(
                     full_name = name
                     current_class = None  # Reset class if top-level function
 
-                symbols.append({
-                    "type": "method" if indent > 0 else "function",
-                    "name": full_name,
-                    "line": i + 1,
-                })
+                symbols.append(
+                    {
+                        "type": "method" if indent > 0 else "function",
+                        "name": full_name,
+                        "line": i + 1,
+                    }
+                )
 
             if len(symbols) >= max_symbols:
                 break
 
-        return ToolResult(True, {
-            "file": str(path),
-            "symbols": symbols,
-            "total": len(symbols),
-        })
+        return ToolResult(
+            True,
+            {
+                "file": str(path),
+                "symbols": symbols,
+                "total": len(symbols),
+            },
+        )
 
     except Exception as e:
         return ToolResult(False, None, f"Symbol extraction failed: {e}")

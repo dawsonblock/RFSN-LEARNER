@@ -2,16 +2,17 @@
 """
 Tests for replay engine.
 """
+
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
 from controller.replay import (
-    ReplayRecorder,
-    ReplayPlayer,
     ReplayContext,
     ReplayEntry,
+    ReplayPlayer,
+    ReplayRecorder,
 )
 
 

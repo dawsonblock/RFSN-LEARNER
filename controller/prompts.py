@@ -2,6 +2,7 @@
 """
 System and user prompts for the agent loop.
 """
+
 from __future__ import annotations
 
 SYSTEM_PROMPT = """You are an assistant that MUST output a single JSON object and nothing else.

@@ -8,6 +8,7 @@ This is the missing "glue" that:
   - records outcome reward after execution
   - feeds the bandit so it actually learns
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,16 +16,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from upstream_learner.outcome_db import OutcomeDB
-from upstream_learner.arm_registry import MultiArmLearner, MultiArmSelection
-from upstream_learner.propose import (
-    select_strategy,
-    record_strategy_outcome,
-    ALL_STRATEGIES,
-    PlanStrategy,
-)
 from controller.planner.reward import reward_from_plan_result
 from controller.planner.types import Plan, PlanResult
+from upstream_learner.arm_registry import MultiArmLearner, MultiArmSelection
+from upstream_learner.outcome_db import OutcomeDB
+from upstream_learner.propose import (
+    ALL_STRATEGIES,
+    PlanStrategy,
+    record_strategy_outcome,
+    select_strategy,
+)
 
 
 @dataclass
@@ -39,7 +40,7 @@ class LearnerBridge:
       - chooses a planning strategy via Thompson sampling
       - selects arms across all categories
       - records outcome reward after execution
-    
+
     This closes the loop: selection → execution → reward → record
     """
 
@@ -56,7 +57,7 @@ class LearnerBridge:
     def choose_plan_strategy(self, *, goal: str, seed: int = 0) -> PlanStrategy:
         """
         Use Thompson sampling to pick the best strategy for this goal type.
-        
+
         Falls back to 'direct' if learner is disabled.
         """
         if not self.cfg.enabled or self.db is None:
@@ -77,7 +78,7 @@ class LearnerBridge:
     ) -> MultiArmSelection | None:
         """
         Select arms across all categories using Thompson sampling.
-        
+
         Returns None if learner is disabled.
         """
         if not self.multi_arm_learner:
@@ -95,7 +96,7 @@ class LearnerBridge:
     ) -> None:
         """
         Record the outcome of executing a plan with a given strategy.
-        
+
         This is what feeds the Thompson sampling algorithm so it learns
         which strategies work best for which goal types.
         """
@@ -103,7 +104,7 @@ class LearnerBridge:
             return
 
         reward = reward_from_plan_result(plan=plan, result=result)
-        
+
         payload: dict[str, Any] = {
             "goal": goal,
             "strategy": strategy,
@@ -143,12 +144,12 @@ class LearnerBridge:
     ) -> None:
         """
         Record rich outcome with full metrics for multi-arm selection.
-        
+
         Use this when recording outcomes from run_task or SWE-bench runs.
         """
         if not self.multi_arm_learner:
             return
-        
+
         self.multi_arm_learner.record_rich(
             selection=selection,
             reward=reward,

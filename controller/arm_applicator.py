@@ -10,6 +10,7 @@ Maps arm selections to concrete behavior changes:
 - plan: Affects decomposition strategy
 - model: Affects LLM selection
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from upstream_learner.arm_registry import MultiArmSelection
 @dataclass
 class TestConfig:
     """Test execution configuration from test arm."""
+
     scope: str = "affected"
     max_tests: int = 10
     timeout: int = 300
@@ -29,6 +31,7 @@ class TestConfig:
 @dataclass
 class SearchConfig:
     """Search configuration from search arm."""
+
     depth: int = 1
     beam: int = 1
 
@@ -36,6 +39,7 @@ class SearchConfig:
 @dataclass
 class RetrievalConfig:
     """Context retrieval configuration from retrieval arm."""
+
     strategy: str = "file_list"
     max_files: int = 10
     max_lines: int = 200
@@ -45,6 +49,7 @@ class RetrievalConfig:
 @dataclass
 class PromptConfig:
     """Prompt configuration from prompt arm."""
+
     style: str = "concise"
     max_tokens: int = 500
     include_examples: bool = False
@@ -54,6 +59,7 @@ class PromptConfig:
 @dataclass
 class ModelConfig:
     """Model configuration from model arm."""
+
     provider: str = "openai"
     model: str = "gpt-4o-mini"
 
@@ -61,6 +67,7 @@ class ModelConfig:
 @dataclass
 class AppliedConfig:
     """Combined configuration from all arms."""
+
     test: TestConfig
     search: SearchConfig
     retrieval: RetrievalConfig

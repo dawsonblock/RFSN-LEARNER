@@ -1,30 +1,32 @@
 """
 Main task execution flow - the controller orchestrator.
 """
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
-# Add parent to path for local imports
-
-from rfsn.types import GateDecision, StateSnapshot
 from rfsn.gate import gate
 from rfsn.ledger import AppendOnlyLedger
-from upstream_learner.propose import select_candidate, Candidate
+
+# Add parent to path for local imports
+from rfsn.types import GateDecision, StateSnapshot
 from upstream_learner.outcome_db import OutcomeDB
+from upstream_learner.propose import Candidate, select_candidate
 
 from .hasher import compute_fs_tree_hash
 from .patch_applier import apply_patch
-from .test_runner import run_tests, TestResult
 from .reward import compute_reward, record_outcome
-
+from .test_runner import TestResult, run_tests
 
 
 @dataclass
 class TaskConfig:
     """Configuration for a single task execution."""
+
     repo_path: Path
     task_id: str
     test_command: str = "python -m pytest"
@@ -34,7 +36,7 @@ class TaskConfig:
     use_docker: bool = True
     ledger_path: Path | None = None
     outcome_db_path: Path | None = None
-    
+
     @classmethod
     def from_json(cls, path: Path | str) -> "TaskConfig":
         with open(path) as f:
@@ -55,6 +57,7 @@ class TaskConfig:
 @dataclass
 class RunResult:
     """Result of a single task run."""
+
     task_id: str
     decision: GateDecision
     selected_arm: str | None
@@ -66,7 +69,7 @@ class RunResult:
 def build_state_snapshot(config: TaskConfig) -> StateSnapshot:
     """Build a StateSnapshot from the current filesystem state."""
     fs_hash = compute_fs_tree_hash(config.repo_path)
-    
+
     # Run initial tests to get baseline state
     baseline_tests = run_tests(
         config.repo_path,
@@ -75,7 +78,7 @@ def build_state_snapshot(config: TaskConfig) -> StateSnapshot:
         memory_limit=config.memory_limit,
         use_docker=config.use_docker,
     )
-    
+
     return StateSnapshot(
         repo_id=str(config.repo_path),
         fs_tree_hash=fs_hash,
@@ -93,7 +96,7 @@ def run_task(
 ) -> RunResult:
     """
     Execute a single task with candidate selection and gating.
-    
+
     Flow:
     1. Build StateSnapshot from current repo state
     2. Use upstream_learner to select best candidate
@@ -104,10 +107,10 @@ def run_task(
     # Setup paths
     ledger_path = config.ledger_path or Path("rfsn_ledger.jsonl")
     outcome_db_path = config.outcome_db_path or Path("outcomes.db")
-    
+
     ledger = AppendOnlyLedger(str(ledger_path))
     outcome_db = OutcomeDB(str(outcome_db_path))
-    
+
     # Step 1: Build state
     try:
         state = build_state_snapshot(config)
@@ -120,19 +123,19 @@ def run_task(
             reward=None,
             error=str(e),
         )
-    
+
     # Step 2: Select candidate
     task_dict = {"task_id": config.task_id, "repo": str(config.repo_path)}
     selected_action = select_candidate(db=outcome_db, task=task_dict, candidates=candidates)
     selected_arm = next(c.arm_key for c in candidates if c.action == selected_action)
-    
+
     # Step 3: Gate the action
     decision = gate(state, selected_action, allow_commands=allow_commands)
-    
+
     # Step 4: Record to ledger (always, regardless of decision)
     decision_str = "allow" if decision.allow else f"deny:{decision.reason}"
     ledger.append(state, selected_action, decision_str)
-    
+
     # Step 5: If denied, we're done
     if not decision.allow:
         return RunResult(
@@ -142,17 +145,19 @@ def run_task(
             test_result=None,
             reward=0.0,
         )
-    
+
     # Step 6: Apply patch if it's a patch action
     test_result = None
     reward = 0.0
-    
+
     if selected_action.kind == "patch":
         patch_result = apply_patch(
             config.repo_path,
-            decision.normalized_action.payload if decision.normalized_action else selected_action.payload,
+            decision.normalized_action.payload
+            if decision.normalized_action
+            else selected_action.payload,
         )
-        
+
         if not patch_result.success:
             return RunResult(
                 task_id=config.task_id,
@@ -162,7 +167,7 @@ def run_task(
                 reward=0.0,
                 error=f"Patch failed: {patch_result.message}",
             )
-        
+
         # Run tests after patch
         test_result = run_tests(
             config.repo_path,
@@ -171,13 +176,13 @@ def run_task(
             memory_limit=config.memory_limit,
             use_docker=config.use_docker,
         )
-        
+
         reward = compute_reward(test_result)
-    
+
     elif selected_action.kind == "patch_plan":
         # Plans are non-executable, reward is informational only
         reward = 0.5  # Neutral reward for plans
-    
+
     # Step 7: Record outcome
     context_key = f"benchmark::{config.task_id}"
     record_outcome(
@@ -187,7 +192,7 @@ def run_task(
         reward,
         test_result=test_result,
     )
-    
+
     return RunResult(
         task_id=config.task_id,
         decision=decision,

@@ -2,6 +2,7 @@
 """
 Build context from chat history + optional memory recall.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from typing import Any, Sequence
 @dataclass(frozen=True)
 class ContextConfig:
     """Configuration for context building."""
+
     max_turns: int = 12
     max_mem_items: int = 6
     recall: bool = True
@@ -33,20 +35,20 @@ def build_context(
 ) -> str:
     """
     Build context block for LLM prompt.
-    
+
     Args:
         chat_history: List of (role, text) tuples
         user_text: Current user input (for memory recall)
         memory: Optional memory store with .search() method
         cfg: Context configuration
-    
+
     Returns:
         Formatted context string
     """
     if cfg is None:
         cfg = ContextConfig()
-    
-    turns = chat_history[-cfg.max_turns:] if cfg.max_turns > 0 else list(chat_history)
+
+    turns = chat_history[-cfg.max_turns :] if cfg.max_turns > 0 else list(chat_history)
     out: list[str] = []
 
     # Memory recall (best-effort; safe to skip if store absent)

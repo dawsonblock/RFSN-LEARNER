@@ -7,6 +7,7 @@ Modes:
 - "record": Execute tools and save outputs
 - "replay": Return saved outputs instead of executing
 """
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ from typing import Any
 @dataclass
 class ReplayRecord:
     """A recorded tool execution."""
+
     action_id: str
     tool: str
     args: dict[str, Any]
@@ -29,7 +31,7 @@ class ReplayRecord:
 class ReplayStore:
     """
     JSONL replay store for tool outputs.
-    
+
     - record mode: appends tool results
     - replay mode: finds matching action_id and returns stored output
     """
@@ -37,7 +39,7 @@ class ReplayStore:
     def __init__(self, path: str, mode: str = "off"):
         """
         Initialize replay store.
-        
+
         Args:
             path: Path to JSONL file
             mode: "off" | "record" | "replay"
@@ -56,7 +58,7 @@ class ReplayStore:
         if not p.exists():
             self._index = {}
             return
-        
+
         with p.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -90,7 +92,7 @@ class ReplayStore:
         """Record a tool execution result."""
         if self.mode != "record":
             return
-        
+
         obj = {
             "action_id": rec.action_id,
             "tool": rec.tool,
@@ -99,7 +101,7 @@ class ReplayStore:
             "summary": rec.summary,
             "data": rec.data,
         }
-        
+
         with Path(self.path).open("a", encoding="utf-8") as f:
             f.write(json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n")
 

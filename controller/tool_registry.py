@@ -2,6 +2,7 @@
 """
 Single authoritative tool registry with schemas, budgets, and permissions.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,12 +10,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .tools.browser import BROWSER_TOOLS
+from .tools.code import CODE_TOOLS
 from .tools.filesystem import FILESYSTEM_TOOLS
 from .tools.memory import MEMORY_TOOLS
-from .tools.browser import BROWSER_TOOLS
-from .tools.shell import SHELL_TOOLS
-from .tools.code import CODE_TOOLS
 from .tools.reasoning import REASONING_TOOLS
+from .tools.shell import SHELL_TOOLS
 
 
 class Risk(str, Enum):
@@ -26,6 +27,7 @@ class Risk(str, Enum):
 @dataclass(frozen=True)
 class Field:
     """Schema field definition."""
+
     name: str
     required: bool = True
     kind: str = "any"  # "str" | "int" | "bool" | "dict" | "list" | "any"
@@ -50,6 +52,7 @@ def _is_kind(v: Any, kind: str) -> bool:
 @dataclass(frozen=True)
 class Budget:
     """Per-turn budget limits for a tool."""
+
     calls_per_turn: int
     max_bytes: int | None = None
     max_results: int | None = None
@@ -63,6 +66,7 @@ class PermissionRule:
     - require_explicit_grant: tool blocked unless caller grants permission
     - deny_in_replay: tool blocked during replay mode (for write/destructive ops)
     """
+
     restrict_paths_to_workdir: bool = False
     require_explicit_grant: bool = False
     deny_in_replay: bool = False
@@ -71,6 +75,7 @@ class PermissionRule:
 @dataclass(frozen=True)
 class ToolSpec:
     """Complete specification for a tool."""
+
     name: str
     handler: Callable[..., Any]
     schema: tuple[Field, ...]
@@ -128,7 +133,9 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10, max_bytes=200_000),
-            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True),
+            permission=PermissionRule(
+                restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True
+            ),
         ),
         "list_dir": spec(
             "list_dir",
@@ -151,7 +158,6 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             budget=Budget(calls_per_turn=10, max_results=500),
             permission=PermissionRule(restrict_paths_to_workdir=True),
         ),
-
         # --- memory ---
         "memory_store": spec(
             "memory_store",
@@ -196,7 +202,6 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             budget=Budget(calls_per_turn=10),
             permission=PermissionRule(require_explicit_grant=True, deny_in_replay=True),
         ),
-
         # --- browser/network ---
         "fetch_url": spec(
             "fetch_url",
@@ -219,7 +224,6 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             budget=Budget(calls_per_turn=10, max_results=10),
             permission=PermissionRule(),
         ),
-
         # --- shell ---
         "run_command": spec(
             "run_command",
@@ -230,21 +234,23 @@ def build_tool_registry() -> dict[str, ToolSpec]:
                 Field("max_output", False, "int"),
             ],
             risk=Risk.HIGH,
-            budget=Budget(calls_per_turn=20, max_bytes=100_000),
-            permission=PermissionRule(require_explicit_grant=True),
+            budget=Budget(calls_per_turn=12, max_bytes=100_000),
+            permission=PermissionRule(require_explicit_grant=True, restrict_paths_to_workdir=True),
         ),
         "run_python": spec(
             "run_python",
             [
                 Field("code", True, "str"),
+                Field("cwd", False, "str"),
                 Field("timeout", False, "int"),
                 Field("max_output", False, "int"),
             ],
             risk=Risk.HIGH,
-            budget=Budget(calls_per_turn=10, max_bytes=100_000),
-            permission=PermissionRule(require_explicit_grant=True),
+            budget=Budget(calls_per_turn=6, max_bytes=100_000),
+            permission=PermissionRule(
+                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True
+            ),
         ),
-
         # --- code ---
         "grep_files": spec(
             "grep_files",
@@ -268,7 +274,9 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10),
-            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True),
+            permission=PermissionRule(
+                restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True
+            ),
         ),
         "get_symbols": spec(
             "get_symbols",
@@ -280,7 +288,6 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             budget=Budget(calls_per_turn=20, max_results=100),
             permission=PermissionRule(restrict_paths_to_workdir=True),
         ),
-
         # --- reasoning (no side effects) ---
         "think": spec(
             "think",

@@ -2,16 +2,17 @@
 """
 Tests for bandit algorithms.
 """
+
 from __future__ import annotations
 
 from upstream_learner.bandit import (
     ArmStats,
     BanditAlgorithm,
+    epsilon_greedy_select,
+    estimate_regret,
+    select_arm,
     thompson_select,
     ucb_select,
-    epsilon_greedy_select,
-    select_arm,
-    estimate_regret,
 )
 
 
@@ -74,8 +75,7 @@ class TestEpsilonGreedy:
         ]
         # With epsilon=0, should always exploit
         results = [
-            epsilon_greedy_select(["best", "worst"], stats, epsilon=0.0, seed=i)
-            for i in range(20)
+            epsilon_greedy_select(["best", "worst"], stats, epsilon=0.0, seed=i) for i in range(20)
         ]
         assert all(r == "best" for r in results)
 
@@ -83,8 +83,7 @@ class TestEpsilonGreedy:
         """High epsilon explores."""
         stats = [ArmStats("only", 100, 0.5)]
         results = [
-            epsilon_greedy_select(["only", "other"], stats, epsilon=1.0, seed=i)
-            for i in range(20)
+            epsilon_greedy_select(["only", "other"], stats, epsilon=1.0, seed=i) for i in range(20)
         ]
         # With epsilon=1, should be random
         assert "other" in results

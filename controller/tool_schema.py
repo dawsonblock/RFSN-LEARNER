@@ -2,6 +2,7 @@
 """
 Tool argument schemas for validation.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from typing import Any, Callable
 @dataclass(frozen=True)
 class Field:
     """Schema field definition."""
+
     name: str
     required: bool = True
     check: Callable[[Any], bool] = lambda _: True
@@ -57,7 +59,6 @@ TOOL_SCHEMAS: dict[str, list[Field]] = {
         Field("pattern", required=True, check=is_str),
         Field("max_results", required=False, check=is_int),
     ],
-
     # Memory tools (controller/tools/memory.py)
     "memory_store": [
         Field("key", required=True, check=is_str),
@@ -74,7 +75,6 @@ TOOL_SCHEMAS: dict[str, list[Field]] = {
     "memory_delete": [
         Field("key", required=True, check=is_str),
     ],
-
     # Browser tools (controller/tools/browser.py)
     "fetch_url": [
         Field("url", required=True, check=is_str),

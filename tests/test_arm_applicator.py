@@ -2,17 +2,16 @@
 """
 Tests for arm applicator module.
 """
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from controller.arm_applicator import (
     AppliedConfig,
-    TestConfig,
-    SearchConfig,
-    RetrievalConfig,
-    PromptConfig,
     ModelConfig,
+    PromptConfig,
+    RetrievalConfig,
+    SearchConfig,
+    TestConfig,
     apply_arms,
     default_config,
 )

@@ -12,6 +12,7 @@ Categories:
 - tool: Tool execution errors
 - llm: LLM-related errors
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -72,6 +73,7 @@ class ErrorCode:
 @dataclass(frozen=True)
 class StructuredError:
     """Structured error for machine-readable logging."""
+
     code: str
     message: str
     details: dict[str, Any] | None = None
@@ -102,19 +104,27 @@ def deny_unknown_tool(tool: str) -> StructuredError:
 
 
 def deny_path_escape(path: str, workdir: str) -> StructuredError:
-    return make_error(ErrorCode.DENY_PATH_ESCAPE, f"Path escapes workdir", path=path, workdir=workdir)
+    return make_error(
+        ErrorCode.DENY_PATH_ESCAPE, "Path escapes workdir", path=path, workdir=workdir
+    )
 
 
 def schema_missing_required(tool: str, arg: str) -> StructuredError:
-    return make_error(ErrorCode.SCHEMA_MISSING_REQUIRED, f"Missing required arg: {arg}", tool=tool, arg=arg)
+    return make_error(
+        ErrorCode.SCHEMA_MISSING_REQUIRED, f"Missing required arg: {arg}", tool=tool, arg=arg
+    )
 
 
 def schema_wrong_type(tool: str, arg: str, expected: str) -> StructuredError:
-    return make_error(ErrorCode.SCHEMA_WRONG_TYPE, f"Wrong type for {arg}", tool=tool, arg=arg, expected=expected)
+    return make_error(
+        ErrorCode.SCHEMA_WRONG_TYPE, f"Wrong type for {arg}", tool=tool, arg=arg, expected=expected
+    )
 
 
 def budget_calls_exceeded(tool: str, used: int, limit: int) -> StructuredError:
-    return make_error(ErrorCode.BUDGET_CALLS_EXCEEDED, f"Call limit exceeded", tool=tool, used=used, limit=limit)
+    return make_error(
+        ErrorCode.BUDGET_CALLS_EXCEEDED, "Call limit exceeded", tool=tool, used=used, limit=limit
+    )
 
 
 def perm_grant_required(tool: str) -> StructuredError:
@@ -122,12 +132,18 @@ def perm_grant_required(tool: str) -> StructuredError:
 
 
 def tool_timeout(tool: str, timeout: int) -> StructuredError:
-    return make_error(ErrorCode.TOOL_TIMEOUT, f"Tool timed out after {timeout}s", tool=tool, timeout=timeout)
+    return make_error(
+        ErrorCode.TOOL_TIMEOUT, f"Tool timed out after {timeout}s", tool=tool, timeout=timeout
+    )
 
 
 def tool_command_blocked(command: str, reason: str) -> StructuredError:
-    return make_error(ErrorCode.TOOL_COMMAND_BLOCKED, f"Command blocked: {reason}", command=command, reason=reason)
+    return make_error(
+        ErrorCode.TOOL_COMMAND_BLOCKED, f"Command blocked: {reason}", command=command, reason=reason
+    )
 
 
 def llm_parse_error(raw: str | None = None) -> StructuredError:
-    return make_error(ErrorCode.LLM_PARSE_ERROR, "Failed to parse LLM response", raw=raw[:200] if raw else None)
+    return make_error(
+        ErrorCode.LLM_PARSE_ERROR, "Failed to parse LLM response", raw=raw[:200] if raw else None
+    )

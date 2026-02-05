@@ -9,18 +9,19 @@ Commands:
 - curve: Show learning curve
 - export: Export data to JSON
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from dataclasses import asdict
 
 from rfsn.types import ProposedAction
-from .outcome_db import OutcomeDB
-from .propose import Candidate, select_candidate, record_outcome
+
 from .analytics import LearningAnalytics
+from .outcome_db import OutcomeDB
+from .propose import Candidate, record_outcome, select_candidate
 
 
 def cmd_pick(args, db: OutcomeDB) -> None:
@@ -28,8 +29,7 @@ def cmd_pick(args, db: OutcomeDB) -> None:
     task = json.loads(open(args.task, "rb").read().decode("utf-8"))
     raw = json.loads(open(args.candidates, "rb").read().decode("utf-8"))
     candidates = [
-        Candidate(arm_key=o["arm_key"], action=ProposedAction(**o["action"]))
-        for o in raw
+        Candidate(arm_key=o["arm_key"], action=ProposedAction(**o["action"])) for o in raw
     ]
     action = select_candidate(db=db, task=task, candidates=candidates, seed=0)
     print(json.dumps(asdict(action), ensure_ascii=False, indent=2))
@@ -48,7 +48,7 @@ def cmd_stats(args, db: OutcomeDB) -> None:
     """Show arm statistics."""
     analytics = LearningAnalytics(db)
     summary = analytics.experiment_summary()
-    
+
     print("=" * 60)
     print("LEARNING STATISTICS")
     print("=" * 60)
@@ -58,27 +58,29 @@ def cmd_stats(args, db: OutcomeDB) -> None:
     print(f"Worst arm:        {summary.worst_arm} (mean={summary.worst_mean:.3f})")
     print(f"Est. regret:      {summary.estimated_regret:.3f}")
     print()
-    
+
     if args.verbose and summary.arms:
         print("ARM RANKINGS:")
         print("-" * 60)
         print(f"{'Arm':<30} {'Count':>8} {'Mean':>8} {'Min':>8} {'Max':>8}")
         print("-" * 60)
-        for arm in summary.arms[:args.limit]:
-            print(f"{arm.arm_key:<30} {arm.count:>8} {arm.mean_reward:>8.3f} {arm.min_reward:>8.3f} {arm.max_reward:>8.3f}")
+        for arm in summary.arms[: args.limit]:
+            print(
+                f"{arm.arm_key:<30} {arm.count:>8} {arm.mean_reward:>8.3f} {arm.min_reward:>8.3f} {arm.max_reward:>8.3f}"
+            )
 
 
 def cmd_curve(args, db: OutcomeDB) -> None:
     """Show learning curve."""
     analytics = LearningAnalytics(db)
     curve = analytics.learning_curve(arm_key=args.arm, window=args.window)
-    
+
     print(f"Learning curve for: {args.arm or 'all arms'}")
     print(f"Total points: {curve.total_count}")
     print(f"Final mean:   {curve.final_mean:.3f}")
     print(f"Converged:    {curve.is_converged()}")
     print()
-    
+
     if args.verbose and curve.points:
         print("CURVE DATA (last 20 points):")
         print("-" * 40)
@@ -92,7 +94,7 @@ def cmd_export(args, db: OutcomeDB) -> None:
     """Export data to JSON."""
     analytics = LearningAnalytics(db)
     data = analytics.export_data(limit=args.limit)
-    
+
     if args.output:
         with open(args.output, "w") as f:
             json.dump(data, f, indent=2)

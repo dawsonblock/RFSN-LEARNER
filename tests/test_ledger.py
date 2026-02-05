@@ -2,6 +2,7 @@
 """
 Ledger hash-chain integrity tests.
 """
+
 from __future__ import annotations
 
 import json
@@ -9,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 from rfsn.ledger import AppendOnlyLedger
-from rfsn.types import StateSnapshot, ProposedAction
+from rfsn.types import ProposedAction, StateSnapshot
 
 
 def make_snapshot() -> StateSnapshot:

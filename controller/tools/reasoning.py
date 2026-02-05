@@ -2,6 +2,7 @@
 """
 Reasoning tools - structured thinking with no side effects.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from typing import Any
 @dataclass(frozen=True)
 class ToolResult:
     """Result from a tool execution."""
+
     success: bool
     output: Any
     error: str | None = None
@@ -66,7 +68,13 @@ def plan(
         output={
             "goal": goal,
             "steps": [
-                {"index": i, "step": s, "status": "done" if i < current_step else ("current" if i == current_step else "pending")}
+                {
+                    "index": i,
+                    "step": s,
+                    "status": "done"
+                    if i < current_step
+                    else ("current" if i == current_step else "pending"),
+                }
                 for i, s in enumerate(steps)
             ],
             "current_step": current_step,

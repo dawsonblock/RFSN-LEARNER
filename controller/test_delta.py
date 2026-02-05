@@ -4,6 +4,7 @@ Test delta computation: baseline → patch → delta.
 
 Computes reward signals from test execution before/after a patch.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from .test_runner import TestResult, run_tests
 @dataclass(frozen=True)
 class TestDelta:
     """Change in test results before/after patch."""
+
     baseline: TestResult
     patched: TestResult
 
@@ -48,7 +50,7 @@ class TestDelta:
     def reward(self) -> float:
         """
         Compute reward signal for reinforcement learning.
-        
+
         Range: [-1.0, 1.0]
         - 1.0: All tests now pass (from some failing)
         - 0.0: No change
@@ -67,7 +69,9 @@ class TestDelta:
 
         # Partial improvement
         if self.improved:
-            return 0.5 * (self.tests_fixed / max(1, self.baseline.failed_tests + self.baseline.error_tests))
+            return 0.5 * (
+                self.tests_fixed / max(1, self.baseline.failed_tests + self.baseline.error_tests)
+            )
 
         return 0.0
 
@@ -107,14 +111,14 @@ def compute_test_delta(
 ) -> TestDelta:
     """
     Compute test delta: baseline → apply patch → patched.
-    
+
     Args:
         worktree: Path to the working directory
         test_command: Command to run tests (e.g., "pytest tests/")
         apply_patch_fn: Function that applies the patch (returns True if successful)
         timeout: Timeout for each test run
         use_docker: Whether to use Docker for isolation
-        
+
     Returns:
         TestDelta with baseline and patched results
     """
@@ -154,7 +158,7 @@ def quick_test_check(
 ) -> tuple[bool, int]:
     """
     Quick check if tests are discoverable.
-    
+
     Returns:
         (tests_found: bool, count: int)
     """
@@ -172,6 +176,7 @@ def quick_test_check(
 
         # Count test items
         import re
+
         matches = re.findall(r"(\d+)\s+test", result.stdout + result.stderr)
         count = int(matches[0]) if matches else 0
 

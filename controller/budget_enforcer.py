@@ -2,6 +2,7 @@
 """
 Per-turn budget enforcement for tool calls.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from .tool_registry import Budget
 @dataclass
 class TurnBudgetState:
     """Tracks budget usage for current turn."""
+
     calls: dict[str, int] = field(default_factory=dict)
     bytes: dict[str, int] = field(default_factory=dict)
 
@@ -37,7 +39,7 @@ class BudgetEnforcer:
     ) -> tuple[bool, str]:
         """
         Check if tool call is within budget, and charge if so.
-        
+
         Returns (ok, error_message).
         """
         # Check call count

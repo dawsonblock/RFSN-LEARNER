@@ -4,6 +4,7 @@ LLM client with multi-provider support (OpenAI, Anthropic, DeepSeek).
 
 This is the "reasoning plane" - generates proposals that go through the gate.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,7 @@ class LLMConfig:
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: float = 30.0
-    
+
     def __post_init__(self):
         if self.api_key is None:
             # Try environment variables
@@ -47,33 +48,36 @@ class LLMResponse:
 class LLMClient:
     """
     Unified LLM client supporting multiple providers.
-    
+
     All outputs go through the gate - this is untrusted reasoning.
     """
-    
+
     def __init__(self, config: LLMConfig):
         self.config = config
         self._client: Any = None
-    
+
     def _get_client(self) -> Any:
         """Lazy initialize the provider client."""
         if self._client is not None:
             return self._client
-        
+
         if self.config.provider == "openai":
             from openai import OpenAI
+
             self._client = OpenAI(
                 api_key=self.config.api_key,
                 timeout=self.config.timeout,
             )
         elif self.config.provider == "anthropic":
             from anthropic import Anthropic
+
             self._client = Anthropic(
                 api_key=self.config.api_key,
                 timeout=self.config.timeout,
             )
         elif self.config.provider == "deepseek":
             from openai import OpenAI
+
             self._client = OpenAI(
                 api_key=self.config.api_key,
                 base_url="https://api.deepseek.com",
@@ -83,9 +87,9 @@ class LLMClient:
             self._client = "mock"
         else:
             raise ValueError(f"Unknown provider: {self.config.provider}")
-        
+
         return self._client
-    
+
     def complete(
         self,
         *,
@@ -96,28 +100,28 @@ class LLMClient:
     ) -> LLMResponse:
         """
         Generate a completion from the LLM.
-        
+
         Returns structured response that should be parsed and gated.
         """
         temp = temperature if temperature is not None else self.config.temperature
         tokens = max_tokens if max_tokens is not None else self.config.max_tokens
-        
+
         if self.config.provider == "mock":
             return self._mock_complete(system, user)
-        
+
         client = self._get_client()
-        
+
         if self.config.provider in ("openai", "deepseek"):
             return self._openai_complete(client, system, user, temp, tokens)
         elif self.config.provider == "anthropic":
             return self._anthropic_complete(client, system, user, temp, tokens)
         else:
             raise ValueError(f"Unknown provider: {self.config.provider}")
-    
+
     def complete_json(self, *, system: str, user: str) -> str:
         """
         Return raw JSON text. Caller parses/validates.
-        
+
         Deterministic: temperature=0, no streaming.
         """
         response = self.complete(
@@ -127,7 +131,7 @@ class LLMClient:
             max_tokens=900,
         )
         return response.content
-    
+
     def _openai_complete(
         self,
         client: Any,
@@ -145,7 +149,7 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        
+
         return LLMResponse(
             content=response.choices[0].message.content or "",
             model=response.model,
@@ -156,7 +160,7 @@ class LLMClient:
             },
             raw=response,
         )
-    
+
     def _anthropic_complete(
         self,
         client: Any,
@@ -172,11 +176,11 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        
+
         content = ""
         if response.content and len(response.content) > 0:
             content = response.content[0].text
-        
+
         return LLMResponse(
             content=content,
             model=response.model,
@@ -187,33 +191,39 @@ class LLMClient:
             },
             raw=response,
         )
-    
+
     def _mock_complete(self, system: str, user: str) -> LLMResponse:
         """Mock response for testing without API calls."""
         # Parse user message to generate appropriate mock response
         user_lower = user.lower()
-        
+
         if "list" in user_lower and "file" in user_lower:
-            content = json.dumps({
-                "action": "tool_call",
-                "tool": "list_dir",
-                "arguments": {"path": "./"},
-                "justification": "List files as requested",
-            })
+            content = json.dumps(
+                {
+                    "action": "tool_call",
+                    "tool": "list_dir",
+                    "arguments": {"path": "./"},
+                    "justification": "List files as requested",
+                }
+            )
         elif "read" in user_lower:
-            content = json.dumps({
-                "action": "tool_call",
-                "tool": "read_file",
-                "arguments": {"path": "./README.md"},
-                "justification": "Read the requested file",
-            })
+            content = json.dumps(
+                {
+                    "action": "tool_call",
+                    "tool": "read_file",
+                    "arguments": {"path": "./README.md"},
+                    "justification": "Read the requested file",
+                }
+            )
         else:
-            content = json.dumps({
-                "action": "message_send",
-                "message": f"I understand you want to: {user[:100]}",
-                "justification": "Acknowledge request",
-            })
-        
+            content = json.dumps(
+                {
+                    "action": "message_send",
+                    "message": f"I understand you want to: {user[:100]}",
+                    "justification": "Acknowledge request",
+                }
+            )
+
         return LLMResponse(
             content=content,
             model="mock",

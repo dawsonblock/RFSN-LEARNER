@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import sqlite3
 import json
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
-
 
 SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS outcomes (
@@ -78,31 +77,32 @@ class Outcome:
 @dataclass
 class RichOutcome:
     """Extended outcome with full metrics."""
+
     context_key: str
     arm_key: str
     reward: float
     ts_utc: str = ""
-    
+
     # Task identification
     task_id: str = ""
     run_id: str = ""
     seed: int = 0
-    
+
     # Execution metrics
     wall_time_ms: float = 0.0
     tool_calls: int = 0
     gate_denials: int = 0
-    
+
     # Test metrics
     tests_passed: int = 0
     tests_failed: int = 0
     tests_baseline_passed: int = 0
     tests_baseline_failed: int = 0
-    
+
     # Patch metrics
     patch_size_bytes: int = 0
     files_changed: int = 0
-    
+
     # Extra metadata
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -110,10 +110,10 @@ class RichOutcome:
 class OutcomeDB:
     """
     Outcome storage with rich metrics for learning curves.
-    
+
     Supports both V1 (legacy) and V2 (extended) schemas.
     """
-    
+
     def __init__(self, path: str, use_v2: bool = True):
         self.path = path
         self.use_v2 = use_v2
@@ -145,9 +145,9 @@ class OutcomeDB:
         """Record rich outcome to V2 table."""
         if not self.use_v2:
             raise RuntimeError("V2 schema not enabled")
-        
+
         ts = outcome.ts_utc or datetime.now(timezone.utc).isoformat()
-        
+
         with sqlite3.connect(self.path) as cx:
             cx.execute(
                 """
@@ -206,61 +206,61 @@ class OutcomeDB:
     ) -> list[tuple[int, float, float]]:
         """
         Get learning curve: (index, mean_reward, cumulative_mean).
-        
+
         Uses V2 table with optional filtering.
         """
         if not self.use_v2:
             return []
-        
+
         query = "SELECT reward FROM outcomes_v2"
         params: list[Any] = []
         conditions = []
-        
+
         if arm_key:
             conditions.append("arm_key = ?")
             params.append(arm_key)
         if task_id:
             conditions.append("task_id = ?")
             params.append(task_id)
-        
+
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY id"
-        
+
         with sqlite3.connect(self.path) as cx:
             rows = cx.execute(query, params).fetchall()
-        
+
         if not rows:
             return []
-        
+
         rewards = [r[0] for r in rows]
         curve = []
         cumsum = 0.0
-        
+
         for i, r in enumerate(rewards):
             cumsum += r
-            
+
             # Windowed mean
             start = max(0, i - window + 1)
-            window_rewards = rewards[start:i+1]
+            window_rewards = rewards[start : i + 1]
             window_mean = sum(window_rewards) / len(window_rewards)
-            
+
             # Cumulative mean
             cum_mean = cumsum / (i + 1)
-            
+
             curve.append((i, window_mean, cum_mean))
-        
+
         return curve
 
     def arm_performance(self) -> dict[str, dict[str, float]]:
         """
         Get performance summary per arm.
-        
+
         Returns: {arm_key: {count, mean, min, max, stddev}}
         """
         if not self.use_v2:
             return {}
-        
+
         with sqlite3.connect(self.path) as cx:
             rows = cx.execute(
                 """
@@ -275,7 +275,7 @@ class OutcomeDB:
                 ORDER BY mean DESC
                 """
             ).fetchall()
-        
+
         result = {}
         for arm_key, n, mean, min_r, max_r in rows:
             result[arm_key] = {
@@ -290,7 +290,7 @@ class OutcomeDB:
         """Get most recent outcomes from V2 table."""
         if not self.use_v2:
             return []
-        
+
         with sqlite3.connect(self.path) as cx:
             rows = cx.execute(
                 """
@@ -307,7 +307,7 @@ class OutcomeDB:
                 """,
                 (limit,),
             ).fetchall()
-        
+
         results = []
         for row in rows:
             meta = {}
@@ -315,25 +315,27 @@ class OutcomeDB:
                 meta = json.loads(row[16]) if row[16] else {}
             except:
                 pass
-            
-            results.append(RichOutcome(
-                context_key=row[0],
-                arm_key=row[1],
-                reward=row[2],
-                ts_utc=row[3],
-                task_id=row[4] or "",
-                run_id=row[5] or "",
-                seed=row[6] or 0,
-                wall_time_ms=row[7] or 0.0,
-                tool_calls=row[8] or 0,
-                gate_denials=row[9] or 0,
-                tests_passed=row[10] or 0,
-                tests_failed=row[11] or 0,
-                tests_baseline_passed=row[12] or 0,
-                tests_baseline_failed=row[13] or 0,
-                patch_size_bytes=row[14] or 0,
-                files_changed=row[15] or 0,
-                meta=meta,
-            ))
-        
+
+            results.append(
+                RichOutcome(
+                    context_key=row[0],
+                    arm_key=row[1],
+                    reward=row[2],
+                    ts_utc=row[3],
+                    task_id=row[4] or "",
+                    run_id=row[5] or "",
+                    seed=row[6] or 0,
+                    wall_time_ms=row[7] or 0.0,
+                    tool_calls=row[8] or 0,
+                    gate_denials=row[9] or 0,
+                    tests_passed=row[10] or 0,
+                    tests_failed=row[11] or 0,
+                    tests_baseline_passed=row[12] or 0,
+                    tests_baseline_failed=row[13] or 0,
+                    patch_size_bytes=row[14] or 0,
+                    files_changed=row[15] or 0,
+                    meta=meta,
+                )
+            )
+
         return results

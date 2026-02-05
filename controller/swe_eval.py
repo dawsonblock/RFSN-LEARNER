@@ -11,25 +11,24 @@ Usage:
         --out ./results \
         --db ./outcomes.sqlite
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import os
-import random
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from .run_task import run_task, load_task
+from .run_task import run_task
 
 
 @dataclass
 class EvalResult:
     """Result of evaluating a single task."""
+
     task_id: str
     success: bool
     reward: float
@@ -44,6 +43,7 @@ class EvalResult:
 @dataclass
 class EvalSummary:
     """Summary of batch evaluation."""
+
     total_tasks: int
     successful: int
     failed: int
@@ -73,7 +73,7 @@ def run_single_task(
     task_id = task.get("id", "unknown")
     task_out = out_dir / task_id
     task_out.mkdir(parents=True, exist_ok=True)
-    
+
     try:
         result = run_task(
             task=task,
@@ -81,7 +81,7 @@ def run_single_task(
             out_dir=task_out,
             db_path=db_path,
         )
-        
+
         return EvalResult(
             task_id=task_id,
             success=result["success"],
@@ -116,22 +116,22 @@ def run_batch(
 ) -> tuple[list[EvalResult], EvalSummary]:
     """
     Run batch evaluation.
-    
+
     Returns (results, summary)
     """
     tasks = list(load_tasks(tasks_path))
     if limit:
         tasks = tasks[:limit]
-    
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    
+
     results: list[EvalResult] = []
     start_time = time.time()
-    
+
     if workers == 1:
         # Single-threaded for debugging
         for i, task in enumerate(tasks):
-            print(f"[{i+1}/{len(tasks)}] Running {task.get('id', 'unknown')}...")
+            print(f"[{i + 1}/{len(tasks)}] Running {task.get('id', 'unknown')}...")
             result = run_single_task(
                 task=task,
                 seed=base_seed + i,
@@ -153,35 +153,39 @@ def run_batch(
                     db_path=db_path,
                 )
                 futures[future] = task.get("id", f"task_{i}")
-            
+
             for future in as_completed(futures):
                 task_id = futures[future]
                 try:
                     result = future.result()
                     results.append(result)
                     status = "✓" if result.success else "✗"
-                    print(f"[{len(results)}/{len(tasks)}] {task_id}: {status} reward={result.reward:.3f}")
+                    print(
+                        f"[{len(results)}/{len(tasks)}] {task_id}: {status} reward={result.reward:.3f}"
+                    )
                 except Exception as e:
                     print(f"[{len(results)}/{len(tasks)}] {task_id}: ERROR {e}")
-                    results.append(EvalResult(
-                        task_id=task_id,
-                        success=False,
-                        reward=-1.0,
-                        arms={},
-                        completed_steps=0,
-                        total_steps=0,
-                        wall_time=0.0,
-                        seed=base_seed,
-                        error=str(e),
-                    ))
-    
+                    results.append(
+                        EvalResult(
+                            task_id=task_id,
+                            success=False,
+                            reward=-1.0,
+                            arms={},
+                            completed_steps=0,
+                            total_steps=0,
+                            wall_time=0.0,
+                            seed=base_seed,
+                            error=str(e),
+                        )
+                    )
+
     end_time = time.time()
     total_time = end_time - start_time
-    
+
     # Compute summary
     successful = sum(1 for r in results if r.success)
     mean_reward = sum(r.reward for r in results) / len(results) if results else 0.0
-    
+
     summary = EvalSummary(
         total_tasks=len(results),
         successful=successful,
@@ -191,7 +195,7 @@ def run_batch(
         total_time=total_time,
         tasks_per_second=len(results) / total_time if total_time > 0 else 0.0,
     )
-    
+
     return results, summary
 
 
@@ -205,15 +209,15 @@ def save_results(
     with open(out_dir / "results.jsonl", "w") as f:
         for r in results:
             f.write(json.dumps(asdict(r), sort_keys=True) + "\n")
-    
+
     # Summary
     with open(out_dir / "summary.json", "w") as f:
         json.dump(asdict(summary), f, indent=2)
-    
+
     # Arm statistics
     arm_counts: dict[str, dict[str, int]] = {}
     arm_rewards: dict[str, dict[str, list[float]]] = {}
-    
+
     for r in results:
         for cat, arm in r.arms.items():
             if cat not in arm_counts:
@@ -224,7 +228,7 @@ def save_results(
                 arm_rewards[cat][arm] = []
             arm_counts[cat][arm] += 1
             arm_rewards[cat][arm].append(r.reward)
-    
+
     arm_stats = {}
     for cat in arm_counts:
         arm_stats[cat] = {}
@@ -236,7 +240,7 @@ def save_results(
                 "min_reward": min(rewards) if rewards else 0,
                 "max_reward": max(rewards) if rewards else 0,
             }
-    
+
     with open(out_dir / "arm_stats.json", "w") as f:
         json.dump(arm_stats, f, indent=2)
 
@@ -267,14 +271,14 @@ def main():
     parser.add_argument("--seed", type=int, default=0, help="Base random seed")
     parser.add_argument("--limit", type=int, help="Max tasks to run")
     args = parser.parse_args()
-    
+
     out_dir = Path(args.out)
-    
+
     print(f"Loading tasks from: {args.tasks}")
     print(f"Workers: {args.workers}")
     print(f"Output: {out_dir}")
     print()
-    
+
     results, summary = run_batch(
         tasks_path=args.tasks,
         out_dir=out_dir,
@@ -283,7 +287,7 @@ def main():
         base_seed=args.seed,
         limit=args.limit,
     )
-    
+
     save_results(results, summary, out_dir)
     print_summary(summary, out_dir)
 

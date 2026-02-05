@@ -5,7 +5,6 @@ from typing import Iterable
 
 from .types import GateDecision, ProposedAction, StateSnapshot
 
-
 DEFAULT_BLOCKED_COMMAND_PREFIXES: tuple[str, ...] = (
     "rm ",
     "sudo ",

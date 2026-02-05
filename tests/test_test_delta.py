@@ -2,12 +2,11 @@
 """
 Tests for test delta computation.
 """
+
 from __future__ import annotations
 
-import pytest
-
+from controller.test_delta import TestDelta
 from controller.test_runner import TestResult
-from controller.test_delta import TestDelta, quick_test_check
 
 
 class TestTestDelta:

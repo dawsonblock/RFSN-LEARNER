@@ -1,15 +1,15 @@
 """
 Task decomposition - break goals into subtasks.
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any, Mapping
 
-
 from rfsn.types import ProposedAction
-from .types import PlanStep
 
+from .types import PlanStep
 
 # Common decomposition patterns (rule-based)
 PATTERNS = {
@@ -48,7 +48,7 @@ def decompose_goal(
 ) -> list[PlanStep]:
     """
     Decompose a high-level goal into executable steps.
-    
+
     Uses rule-based patterns for common goals.
     Falls back to single direct action for unknown patterns.
     """
@@ -56,7 +56,7 @@ def decompose_goal(
     matched = match_pattern(goal)
     if matched:
         return _create_steps_from_pattern(goal, matched)
-    
+
     # Fallback: single direct action
     return [_create_direct_step(goal)]
 
@@ -68,7 +68,7 @@ def _create_steps_from_pattern(
     """Create PlanStep objects from matched pattern."""
     steps = []
     prev_id = None
-    
+
     for step_type, description in pattern_steps:
         action = _create_action_for_step(step_type, goal)
         step = PlanStep.create(
@@ -78,7 +78,7 @@ def _create_steps_from_pattern(
         )
         steps.append(step)
         prev_id = step.step_id
-    
+
     return steps
 
 
@@ -86,7 +86,7 @@ def _create_direct_step(goal: str) -> PlanStep:
     """Create a single direct execution step."""
     # Infer action type from goal
     goal_lower = goal.lower()
-    
+
     if any(w in goal_lower for w in ["list", "show", "find files"]):
         action = ProposedAction(
             kind="tool_call",
@@ -118,7 +118,7 @@ def _create_direct_step(goal: str) -> PlanStep:
             payload={"message": f"I need more specific instructions to: {goal}"},
             justification="Goal requires clarification",
         )
-    
+
     return PlanStep.create(
         description=f"Execute: {goal}",
         action=action,

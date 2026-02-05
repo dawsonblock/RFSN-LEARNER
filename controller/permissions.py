@@ -2,6 +2,7 @@
 """
 Permission state for tool authorization.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ class PermissionState:
     """
     Minimal permission store. Grant/revoke tools via UI or commands.
     """
+
     granted_tools: set[str] = field(default_factory=set)
 
     def grant_tool(self, tool: str) -> None:

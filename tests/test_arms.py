@@ -2,19 +2,19 @@
 """
 Tests for arm registry and multi-arm selection.
 """
+
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
+from upstream_learner.arm_registry import MultiArmLearner
 from upstream_learner.arms import (
     ALL_ARMS,
-    ARMS_BY_CATEGORY,
+    Arm,
     get_arm,
     get_arms_for_category,
-    Arm,
 )
-from upstream_learner.arm_registry import MultiArmLearner
 from upstream_learner.outcome_db import OutcomeDB
 
 
@@ -51,7 +51,9 @@ class TestMultiArmLearner:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.sqlite")
             db = OutcomeDB(db_path)
-            learner = MultiArmLearner(db, categories=["plan", "prompt", "retrieval", "search", "test"])
+            learner = MultiArmLearner(
+                db, categories=["plan", "prompt", "retrieval", "search", "test"]
+            )
 
             selection = learner.select(
                 context_key="test",
@@ -68,7 +70,9 @@ class TestMultiArmLearner:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.sqlite")
             db = OutcomeDB(db_path)
-            learner = MultiArmLearner(db, categories=["plan", "prompt", "retrieval", "search", "test"])
+            learner = MultiArmLearner(
+                db, categories=["plan", "prompt", "retrieval", "search", "test"]
+            )
 
             sel1 = learner.select(context_key="test", seed=42)
             sel2 = learner.select(context_key="test", seed=42)
@@ -81,7 +85,9 @@ class TestMultiArmLearner:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.sqlite")
             db = OutcomeDB(db_path)
-            learner = MultiArmLearner(db, categories=["plan", "prompt", "retrieval", "search", "test"])
+            learner = MultiArmLearner(
+                db, categories=["plan", "prompt", "retrieval", "search", "test"]
+            )
 
             selection = learner.select(context_key="test", seed=42)
             learner.record(
@@ -92,6 +98,7 @@ class TestMultiArmLearner:
 
             # Check DB has entries
             import sqlite3
+
             conn = sqlite3.connect(db_path)
             count = conn.execute("SELECT COUNT(*) FROM outcomes").fetchone()[0]
             assert count == 5  # One per category
