@@ -61,9 +61,11 @@ class PermissionRule:
     Permission controls for tools.
     - restrict_paths_to_workdir: file paths must be within working_directory
     - require_explicit_grant: tool blocked unless caller grants permission
+    - deny_in_replay: tool blocked during replay mode (for write/destructive ops)
     """
     restrict_paths_to_workdir: bool = False
     require_explicit_grant: bool = False
+    deny_in_replay: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,7 +128,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10, max_bytes=200_000),
-            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True),
+            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True),
         ),
         "list_dir": spec(
             "list_dir",
@@ -192,7 +194,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10),
-            permission=PermissionRule(require_explicit_grant=True),
+            permission=PermissionRule(require_explicit_grant=True, deny_in_replay=True),
         ),
 
         # --- browser/network ---
@@ -266,7 +268,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.HIGH,
             budget=Budget(calls_per_turn=10),
-            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True),
+            permission=PermissionRule(restrict_paths_to_workdir=True, require_explicit_grant=True, deny_in_replay=True),
         ),
         "get_symbols": spec(
             "get_symbols",

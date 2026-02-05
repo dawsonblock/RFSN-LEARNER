@@ -25,6 +25,8 @@ from .learner_bridge import LearnerBridge, LearnerConfig
 from .replay_store import ReplayStore
 from .agent_loop import run_agent_turn, AgentConfig
 from .context_builder import ContextConfig
+from .ledger_events import ledger_info
+from .turn_utils import start_turn
 
 
 def create_world_snapshot(
@@ -164,12 +166,30 @@ def run_interactive_mode(policy: AgentPolicy, replay: ReplayStore | None = None)
         if user_input.startswith("/grant "):
             tool = user_input.split(" ", 1)[1].strip()
             context.permissions.grant_tool(tool)
+            # Log to ledger for replay
+            world = create_world_snapshot(session_id, context, policy)
+            ledger_info(
+                ledger,
+                world=world,
+                kind="permission_grant",
+                payload={"tool": tool},
+                decision="info:permission_grant",
+            )
             print(f"✓ Granted permission for: {tool}")
             continue
 
         if user_input.startswith("/revoke "):
             tool = user_input.split(" ", 1)[1].strip()
             context.permissions.revoke_tool(tool)
+            # Log to ledger for replay
+            world = create_world_snapshot(session_id, context, policy)
+            ledger_info(
+                ledger,
+                world=world,
+                kind="permission_revoke",
+                payload={"tool": tool},
+                decision="info:permission_revoke",
+            )
             print(f"✗ Revoked permission for: {tool}")
             continue
 

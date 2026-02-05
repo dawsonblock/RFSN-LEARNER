@@ -42,6 +42,9 @@ class ExecutionContext:
     budgets: BudgetEnforcer = field(default_factory=BudgetEnforcer)
     permissions: PermissionState = field(default_factory=PermissionState)
 
+    # Replay mode: "off" | "record" | "replay"
+    replay_mode: str = "off"
+
     def start_new_turn(self) -> None:
         """Reset per-turn budgets."""
         self.budgets.reset_turn()
@@ -97,7 +100,11 @@ def route_tool_call(
     if spec.permission.require_explicit_grant and not context.permissions.has_tool(tool_name):
         return ToolResult(False, None, f"Permission required for tool: {tool_name}")
 
-    # 3) Path scoping for filesystem-like tools
+    # 3) Replay mode blocking for destructive tools
+    if context.replay_mode == "replay" and spec.permission.deny_in_replay:
+        return ToolResult(False, None, f"Tool denied in replay mode: {tool_name}")
+
+    # 4) Path scoping for filesystem-like tools
     if spec.permission.restrict_paths_to_workdir:
         if tool_name in ("read_file", "write_file", "list_dir", "get_symbols", "apply_diff"):
             p = str(arguments.get("path", arguments.get("file_path", "")))

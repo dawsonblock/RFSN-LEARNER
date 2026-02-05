@@ -222,3 +222,84 @@ class TestRegistryCompleteness:
         for name, spec in registry.items():
             assert spec.budget is not None, f"Tool {name} missing budget"
             assert spec.budget.calls_per_turn > 0, f"Tool {name} has zero call budget"
+
+
+class TestReplayModeBlocking:
+    """Destructive tools must be blocked during replay."""
+
+    def test_write_file_blocked_in_replay(self):
+        """write_file should be denied when replay_mode is 'replay'."""
+        context = ExecutionContext(
+            session_id="test",
+            working_directory="/tmp",
+        )
+        context.permissions.grant_tool("write_file")
+        context.replay_mode = "replay"
+        
+        result = route_tool_call("write_file", {
+            "path": "/tmp/test.txt",
+            "content": "hello"
+        }, context)
+        
+        assert not result.success
+        assert "denied in replay mode" in result.error
+
+    def test_write_file_allowed_in_record(self):
+        """write_file should be allowed when replay_mode is 'record'."""
+        context = ExecutionContext(
+            session_id="test",
+            working_directory="/tmp",
+        )
+        context.permissions.grant_tool("write_file")
+        context.replay_mode = "record"
+        
+        result = route_tool_call("write_file", {
+            "path": "/tmp/test_replay.txt",
+            "content": "hello"
+        }, context)
+        
+        # Should succeed (file may not exist but permission OK)
+        assert result.success or "replay" not in (result.error or "").lower()
+
+    def test_read_file_allowed_in_replay(self):
+        """read_file should be allowed even in replay mode (read-only)."""
+        context = ExecutionContext(
+            session_id="test",
+            working_directory="/tmp",
+        )
+        context.replay_mode = "replay"
+        
+        # read_file doesn't have deny_in_replay set
+        result = route_tool_call("read_file", {"path": "/tmp"}, context)
+        
+        # Should not fail due to replay mode
+        assert "replay" not in (result.error or "").lower()
+
+    def test_memory_delete_blocked_in_replay(self):
+        """memory_delete should be denied when replay_mode is 'replay'."""
+        context = ExecutionContext(session_id="test")
+        context.permissions.grant_tool("memory_delete")
+        context.replay_mode = "replay"
+        
+        result = route_tool_call("memory_delete", {"key": "test_key"}, context)
+        
+        assert not result.success
+        assert "denied in replay mode" in result.error
+
+    def test_apply_diff_blocked_in_replay(self):
+        """apply_diff should be denied when replay_mode is 'replay'."""
+        context = ExecutionContext(
+            session_id="test",
+            working_directory="/tmp",
+        )
+        context.permissions.grant_tool("apply_diff")
+        context.replay_mode = "replay"
+        
+        result = route_tool_call("apply_diff", {
+            "file_path": "/tmp/test.py",
+            "diff": "@@ -1,1 +1,1 @@\n-old\n+new"
+        }, context)
+        
+        assert not result.success
+        assert "denied in replay mode" in result.error
+
