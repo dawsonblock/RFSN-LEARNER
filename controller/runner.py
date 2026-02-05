@@ -4,13 +4,10 @@ Main task execution flow - the controller orchestrator.
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Sequence
 
 # Add parent to path for local imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rfsn.types import GateDecision, StateSnapshot
 from rfsn.gate import gate

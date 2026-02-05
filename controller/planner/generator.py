@@ -3,9 +3,6 @@ Plan generator - create plans from goals using strategies.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from rfsn.types import WorldSnapshot
 from .types import Plan, PlanStep, PlanStrategy

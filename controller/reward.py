@@ -4,14 +4,11 @@ Reward signal computation and recording.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Mapping
 
 from .test_runner import TestResult
 
 # Import upstream learner for recording
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
 from upstream_learner.outcome_db import OutcomeDB
 
 

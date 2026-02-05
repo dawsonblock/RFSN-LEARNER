@@ -6,9 +6,6 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from rfsn.types import ProposedAction
 from .types import PlanStep

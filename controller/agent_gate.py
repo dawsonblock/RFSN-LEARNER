@@ -5,11 +5,8 @@ Wraps the core gate with policy checks for tool_call, memory_write, etc.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any, Mapping
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rfsn.types import GateDecision, ProposedAction, WorldSnapshot, StateSnapshot
 from rfsn.gate import gate as core_gate
