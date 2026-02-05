@@ -74,6 +74,57 @@ BLOCKED_REGEXES = [
     re.compile(r"\$\(.*\)"),  # command substitution
 ]
 
+# Sensitive paths that should be blocked from access
+# Commands reading/writing to these paths will be rejected
+SENSITIVE_PATHS = frozenset(
+    {
+        # Credentials and keys
+        "/etc/passwd",
+        "/etc/shadow",
+        "/etc/sudoers",
+        "/etc/ssh/",
+        "~/.ssh/",
+        "~/.gnupg/",
+        "~/.aws/",
+        "~/.config/gcloud/",
+        "~/.kube/config",
+        # System directories
+        "/proc/",
+        "/sys/",
+        "/boot/",
+        "/root/",
+        # Common credential files
+        ".env",
+        ".netrc",
+        ".npmrc",
+        ".pypirc",
+        "credentials.json",
+        "service_account.json",
+        # Database files
+        "*.db",
+        "*.sqlite",
+        "*.sqlite3",
+    }
+)
+
+# Regex for detecting sensitive path patterns
+SENSITIVE_PATH_PATTERNS = [
+    re.compile(r"/etc/passwd"),
+    re.compile(r"/etc/shadow"),
+    re.compile(r"/etc/sudoers"),
+    re.compile(r"~?/\.ssh/"),
+    re.compile(r"~?/\.aws/"),
+    re.compile(r"~?/\.gnupg/"),
+    re.compile(r"/proc/"),
+    re.compile(r"/root/"),
+    re.compile(r"\.env\b"),
+    re.compile(r"id_rsa"),
+    re.compile(r"id_ed25519"),
+    re.compile(r"private.*key", re.IGNORECASE),
+    re.compile(r"credentials\.json"),
+    re.compile(r"service.account.*\.json", re.IGNORECASE),
+]
+
 # Command allowlist - only these commands are permitted
 ALLOWED_COMMANDS = frozenset(
     {
@@ -248,6 +299,11 @@ def _validate_command(cmd: str) -> tuple[bool, str]:
     for pattern in BLOCKED_REGEXES:
         if pattern.search(cmd):
             return False, f"Blocked pattern detected: {pattern.pattern}"
+
+    # Check for sensitive path access
+    for pattern in SENSITIVE_PATH_PATTERNS:
+        if pattern.search(cmd):
+            return False, f"Blocked: sensitive path access detected: {pattern.pattern}"
 
     # Parse command to get first word
     try:

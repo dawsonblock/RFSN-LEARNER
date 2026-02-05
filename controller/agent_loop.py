@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from controller.action_io import ProposalError, parse_llm_json
 from controller.agent_gate import agent_gate
@@ -25,6 +25,9 @@ from controller.validate_tool_call import validate_tool_call
 from rfsn.ledger import AppendOnlyLedger
 from rfsn.policy import DEFAULT_POLICY, AgentPolicy
 from rfsn.types import ProposedAction, WorldSnapshot
+
+# Type for event emission callback
+EmitFn = Callable[[str, dict[str, Any]], None]
 
 
 @dataclass
@@ -105,6 +108,7 @@ def run_agent_turn(
     memory: Any | None = None,
     cfg: AgentConfig | None = None,
     replay: ReplayStore | None = None,
+    emit: EmitFn | None = None,
 ) -> AgentResult:
     """
     Execute one user turn through the agent loop.
@@ -123,6 +127,15 @@ def run_agent_turn(
     Returns:
         AgentResult with message and stats
     """
+    # Helper to safely emit events
+    def E(event_type: str, payload: dict[str, Any]) -> None:
+        if emit is None:
+            return
+        try:
+            emit(event_type, payload)
+        except Exception:
+            pass
+
     if cfg is None:
         cfg = AgentConfig()
     if policy is None:
@@ -131,6 +144,7 @@ def run_agent_turn(
         exec_ctx = ExecutionContext(session_id="default")
 
     llm = LLMClient(cfg.llm_cfg)
+    E("turn_start", {"user_text": user_text})
 
     local_history = list(chat_history)
     final_message: str | None = None
@@ -172,6 +186,8 @@ def run_agent_turn(
                 actions_replayed=actions_replayed,
             )
 
+        E("llm_raw", {"step": step, "raw_head": raw[:1000]})
+
         # Parse JSON
         try:
             proposal = parse_llm_json(raw)
@@ -196,6 +212,8 @@ def run_agent_turn(
                 actions_replayed=actions_replayed,
             )
 
+        E("proposal_parsed", {"step": step, "num_actions": len(proposal.actions)})
+
         # Process each proposed action
         for action in proposal.actions:
             actions_proposed += 1
@@ -211,6 +229,7 @@ def run_agent_turn(
             # 1) Schema validation for tool calls (pre-gate)
             v = validate_tool_call(action)
             if not v.ok:
+                E("deny", {"step": step, "reason": "tool_args_invalid", "error": v.error, "action": {"kind": action.kind}})
                 _append_to_ledger(
                     ledger,
                     world=world,
@@ -218,6 +237,7 @@ def run_agent_turn(
                     decision="deny:tool_args_invalid",
                     extra={"error": v.error, "step": step},
                 )
+                E("ledger_append", {"step": step, "decision": "deny:tool_args_invalid"})
                 # Feedback to model
                 local_history.append(("tool", f"tool_args_invalid: {v.error}"))
                 actions_denied += 1
@@ -225,6 +245,12 @@ def run_agent_turn(
 
             # 2) Gate decision
             decision = agent_gate(world, action, policy=policy)
+            E("gate_decision", {
+                "step": step,
+                "allowed": decision.allow,
+                "reason": decision.reason,
+                "action": {"kind": action.kind, "payload": action.payload},
+            })
 
             _append_to_ledger(
                 ledger,
@@ -233,6 +259,7 @@ def run_agent_turn(
                 decision="allow" if decision.allow else "deny",
                 extra={"reason": decision.reason, "step": step},
             )
+            E("ledger_append", {"step": step, "decision": "allow" if decision.allow else "deny"})
 
             if not decision.allow:
                 actions_denied += 1
@@ -245,6 +272,7 @@ def run_agent_turn(
                 aid = _action_id(action)
                 rec = replay.get(aid)
                 if rec is not None:
+                    E("replay_hit", {"step": step, "tool": rec.tool, "action_id": aid, "ok": rec.ok, "summary": rec.summary})
                     _append_to_ledger(
                         ledger,
                         world=world,
@@ -264,6 +292,8 @@ def run_agent_turn(
                     local_history.append(("tool", f"{rec.tool} (replay): {rec.summary}"))
                     actions_replayed += 1
                     continue
+                else:
+                    E("replay_miss", {"step": step, "action_id": aid})
 
             # 4) Execute based on action kind
             if action.kind == "message_send":
@@ -274,12 +304,14 @@ def run_agent_turn(
             elif action.kind == "tool_call":
                 tool = str(action.payload.get("tool", ""))
                 args = action.payload.get("args", action.payload.get("arguments", {}))
+                E("tool_call", {"step": step, "tool": tool, "arguments": args})
 
                 # Execute tool
                 result = route_action({"tool": tool, "arguments": args}, exec_ctx)
 
                 ok = result.success
                 summary = str(result.output) if result.success else f"ERROR: {result.error}"
+                E("tool_result", {"step": step, "tool": tool, "ok": ok, "summary": summary[:500]})
 
                 # 5) Record tool outputs for replay
                 if replay is not None and replay.mode == "record":
@@ -334,6 +366,8 @@ def run_agent_turn(
 
     if final_message is None:
         final_message = "I couldn't complete that request. Try asking for something specific."
+
+    E("turn_end", {"final_message": final_message})
 
     return AgentResult(
         message=final_message,

@@ -1,4 +1,4 @@
-import { Activity, CheckCircle, XCircle, AlertCircle, Zap } from 'lucide-react'
+import { Activity, CheckCircle, XCircle, AlertCircle, Zap, Shield, Play, RotateCcw, FileText, Clock, User } from 'lucide-react'
 import type { SystemEvent } from '../store/useStore'
 
 interface SystemPanelProps {
@@ -8,15 +8,36 @@ interface SystemPanelProps {
 function EventIcon({ type }: { type: string }) {
     switch (type) {
         case 'agent_message':
+        case 'turn_end':
             return <CheckCircle size={14} className="text-green-500" />
         case 'error':
+        case 'deny':
             return <XCircle size={14} className="text-red-500" />
         case 'tool_call':
         case 'manual_tool_call':
             return <Zap size={14} className="text-blue-500" />
+        case 'tool_result':
+            return <FileText size={14} className="text-blue-400" />
+        case 'gate_decision':
+            return <Shield size={14} className="text-purple-500" />
         case 'permission_granted':
         case 'permission_revoked':
             return <AlertCircle size={14} className="text-yellow-500" />
+        case 'replay_hit':
+            return <RotateCcw size={14} className="text-cyan-500" />
+        case 'replay_miss':
+            return <RotateCcw size={14} className="text-slate-400" />
+        case 'ledger_append':
+            return <FileText size={14} className="text-slate-500" />
+        case 'turn_start':
+            return <Play size={14} className="text-green-400" />
+        case 'user_message':
+            return <User size={14} className="text-indigo-500" />
+        case 'llm_raw':
+        case 'proposal_parsed':
+            return <Clock size={14} className="text-orange-400" />
+        case 'connected':
+            return <Activity size={14} className="text-green-500" />
         default:
             return <Activity size={14} className="text-slate-400" />
     }

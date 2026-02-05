@@ -123,3 +123,35 @@ def ensure_image(image: str) -> bool:
         capture_output=True,
     )
     return pull.returncode == 0
+
+
+def run_pytest_in_docker(
+    worktree: Path,
+    test_command: str = "pytest -v",
+    *,
+    timeout_seconds: int = 300,
+    config: ContainerConfig | None = None,
+) -> dict:
+    """
+    Run pytest in Docker container and return kernel-compatible result.
+
+    Returns dict with keys: returncode, stdout, stderr, meta
+    """
+    result = run_in_container(
+        test_command,
+        worktree,
+        config=config,
+        timeout_seconds=timeout_seconds,
+    )
+
+    return {
+        "returncode": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "meta": {
+            "timed_out": result.timed_out,
+            "docker": True,
+            "image": (config or ContainerConfig()).image,
+        },
+    }
+

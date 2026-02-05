@@ -11,24 +11,27 @@ Run: python ui/server.py
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import sys
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from controller.agent_loop import run_agent_turn
+from controller.metrics import get_metrics
 from controller.tool_router import (
     TOOL_REGISTRY,
     ExecutionContext,
@@ -41,6 +44,7 @@ from controller.tools.memory import (
 from rfsn.ledger import AppendOnlyLedger
 from rfsn.policy import DEV_POLICY
 from rfsn.types import WorldSnapshot
+from ui.session_store import get_session_store
 
 # =============================================================================
 # APP CONFIGURATION
@@ -127,6 +131,7 @@ API_LIMITER = RateLimiter(max_requests=120, window_seconds=60)  # 120 general AP
 # =============================================================================
 
 
+
 @dataclass
 class Session:
     """Active agent session."""
@@ -135,7 +140,7 @@ class Session:
     context: ExecutionContext
     ledger: AppendOnlyLedger
     chat_history: list[tuple[str, str]] = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 SESSIONS: dict[str, Session] = {}
@@ -143,11 +148,33 @@ WEBSOCKETS: dict[str, list[WebSocket]] = {}
 
 
 def get_or_create_session(session_id: str | None = None) -> Session:
-    """Get existing session or create new one."""
+    """Get existing session or create/restore one."""
+    # Check in-memory cache first
     if session_id and session_id in SESSIONS:
         return SESSIONS[session_id]
 
+    store = get_session_store()
     new_id = session_id or str(uuid.uuid4())[:8]
+
+    # Try to restore from persistent storage
+    stored = store.get(new_id)
+    if stored:
+        ledger_path = f"./tmp/sessions/{new_id}/ledger.jsonl"
+        os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
+
+        session = Session(
+            session_id=new_id,
+            context=ExecutionContext(session_id=new_id),
+            ledger=AppendOnlyLedger(ledger_path),
+            chat_history=list(stored.chat_history),
+            created_at=stored.created_at,
+        )
+        session.context.working_directory = stored.working_directory
+        session.context.replay_mode = stored.replay_mode
+        SESSIONS[new_id] = session
+        return session
+
+    # Create new session
     ledger_path = f"./tmp/sessions/{new_id}/ledger.jsonl"
     os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
 
@@ -157,7 +184,21 @@ def get_or_create_session(session_id: str | None = None) -> Session:
         ledger=AppendOnlyLedger(ledger_path),
     )
     SESSIONS[new_id] = session
+
+    # Persist to storage
+    store.create(new_id, working_directory=session.context.working_directory)
     return session
+
+
+def persist_session(session: Session) -> None:
+    """Save session state to persistent storage."""
+    store = get_session_store()
+    store.update(
+        session.session_id,
+        chat_history=session.chat_history,
+        working_directory=session.context.working_directory,
+        replay_mode=getattr(session.context, "replay_mode", "none"),
+    )
 
 
 async def broadcast_event(session_id: str, event: dict[str, Any]) -> None:
@@ -222,7 +263,7 @@ async def chat(request: ChatRequest):
         {
             "type": "user_message",
             "content": request.message,
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -233,6 +274,19 @@ async def chat(request: ChatRequest):
         enabled_tools=list(TOOL_REGISTRY.keys()),
     )
 
+    # Emit callback for real-time streaming
+    def emit(event_type: str, payload: dict) -> None:
+        """Emit events to WebSocket clients (fire-and-forget)."""
+        try:
+            asyncio.create_task(
+                broadcast_event(
+                    session.session_id,
+                    {"type": event_type, **payload, "ts": datetime.now(UTC).isoformat()},
+                )
+            )
+        except Exception:
+            pass
+
     # Run agent turn
     try:
         result = run_agent_turn(
@@ -242,11 +296,13 @@ async def chat(request: ChatRequest):
             policy=DEV_POLICY,
             ledger=session.ledger,
             exec_ctx=session.context,
+            emit=emit,
         )
 
         # Update chat history
         session.chat_history.append(("user", request.message))
         session.chat_history.append(("assistant", result.message))
+        persist_session(session)
 
         # Broadcast response
         await broadcast_event(
@@ -257,7 +313,7 @@ async def chat(request: ChatRequest):
                 "steps_taken": result.steps_taken,
                 "actions_allowed": result.actions_allowed,
                 "actions_denied": result.actions_denied,
-                "ts": datetime.utcnow().isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -274,10 +330,53 @@ async def chat(request: ChatRequest):
             {
                 "type": "error",
                 "error": str(e),
-                "ts": datetime.utcnow().isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             },
         )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# SESSIONS MANAGEMENT ENDPOINT
+# =============================================================================
+
+
+@app.get("/api/sessions")
+async def list_sessions(limit: int = 50):
+    """List all persisted sessions."""
+    store = get_session_store()
+    sessions = store.list_sessions(limit=limit)
+    return {"sessions": sessions}
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_session_info(session_id: str):
+    """Get session details including chat history."""
+    store = get_session_store()
+    stored = store.get(session_id)
+    if not stored:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {
+        "session_id": stored.session_id,
+        "created_at": stored.created_at,
+        "updated_at": stored.updated_at,
+        "message_count": len(stored.chat_history),
+        "chat_history": stored.chat_history,
+        "working_directory": stored.working_directory,
+        "replay_mode": stored.replay_mode,
+    }
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a persisted session."""
+    store = get_session_store()
+    if store.delete(session_id):
+        # Also remove from in-memory cache
+        SESSIONS.pop(session_id, None)
+        return {"deleted": True}
+    raise HTTPException(status_code=404, detail="Session not found")
 
 
 # =============================================================================
@@ -302,7 +401,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 "type": "connected",
                 "session_id": session_id,
                 "replay_mode": session.context.replay_mode,
-                "ts": datetime.utcnow().isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -452,7 +551,7 @@ async def run_tool_manually(request: ManualToolRequest):
             "type": "manual_tool_call",
             "tool": request.tool,
             "success": result.success,
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -492,7 +591,7 @@ async def grant_permission(request: PermissionRequest, session_id: str = Query(N
         {
             "type": "permission_granted",
             "tool": request.tool,
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -510,7 +609,7 @@ async def revoke_permission(request: PermissionRequest, session_id: str = Query(
         {
             "type": "permission_revoked",
             "tool": request.tool,
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -660,11 +759,130 @@ async def set_replay_mode(request: ReplayModeRequest, session_id: str = Query(No
         {
             "type": "replay_mode_changed",
             "mode": request.mode,
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         },
     )
 
     return {"mode": request.mode, "session_id": session.session_id}
+
+
+class ReplayImportRequest(BaseModel):
+    """Request to import replay data."""
+
+    data: list[dict]  # List of replay records
+    session_id: str | None = None
+
+
+@app.get("/api/replay/export")
+async def export_replay(session_id: str = Query(None)):
+    """
+    Export replay data as downloadable JSONL file.
+
+    Returns a streaming response with the replay log for the session.
+    """
+    session = get_or_create_session(session_id)
+
+    # Find the replay file path
+    replay_path = Path(f"replay_{session.session_id}.jsonl")
+
+    if not replay_path.exists():
+        # Return empty JSONL if no replay data
+        return StreamingResponse(
+            io.BytesIO(b""),
+            media_type="application/x-ndjson",
+            headers={
+                "Content-Disposition": f'attachment; filename="replay_{session.session_id}.jsonl"'
+            },
+        )
+
+    # Stream the file content
+    def iter_file():
+        with open(replay_path, "rb") as f:
+            yield from f
+
+    return StreamingResponse(
+        iter_file(),
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": f'attachment; filename="replay_{session.session_id}.jsonl"'
+        },
+    )
+
+
+@app.get("/api/replay/data")
+async def get_replay_data(session_id: str = Query(None)):
+    """
+    Get replay data as JSON array.
+
+    Returns parsed replay records for UI display.
+    """
+    session = get_or_create_session(session_id)
+    replay_path = Path(f"replay_{session.session_id}.jsonl")
+
+    records = []
+    if replay_path.exists():
+        with open(replay_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+
+    return {
+        "session_id": session.session_id,
+        "record_count": len(records),
+        "records": records,
+    }
+
+
+@app.post("/api/replay/import")
+async def import_replay(request: ReplayImportRequest):
+    """
+    Import replay data from JSON array.
+
+    Appends records to the session's replay file.
+    """
+    session = get_or_create_session(request.session_id)
+    replay_path = Path(f"replay_{session.session_id}.jsonl")
+
+    imported_count = 0
+    with open(replay_path, "a", encoding="utf-8") as f:
+        for record in request.data:
+            # Validate required fields
+            if "action_id" not in record or "tool" not in record:
+                continue
+            f.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+            imported_count += 1
+
+    return {
+        "session_id": session.session_id,
+        "imported_count": imported_count,
+        "message": f"Imported {imported_count} replay records",
+    }
+
+
+@app.delete("/api/replay/clear")
+async def clear_replay(session_id: str = Query(None)):
+    """
+    Clear replay data for a session.
+
+    Deletes the replay file.
+    """
+    session = get_or_create_session(session_id)
+    replay_path = Path(f"replay_{session.session_id}.jsonl")
+
+    deleted = False
+    if replay_path.exists():
+        replay_path.unlink()
+        deleted = True
+
+    return {
+        "session_id": session.session_id,
+        "deleted": deleted,
+        "message": "Replay data cleared" if deleted else "No replay data to clear",
+    }
 
 
 # =============================================================================
@@ -708,21 +926,6 @@ async def get_world_state(session_id: str = Query(None)):
     return {"session_id": None, "message": "No active session"}
 
 
-@app.get("/api/sessions")
-async def list_sessions():
-    """List all active sessions."""
-    return {
-        "sessions": [
-            {
-                "session_id": s.session_id,
-                "created_at": s.created_at,
-                "messages": len(s.chat_history),
-            }
-            for s in SESSIONS.values()
-        ]
-    }
-
-
 # =============================================================================
 # HEALTH CHECK
 # =============================================================================
@@ -736,6 +939,29 @@ async def health_check():
         "version": "1.0.0",
         "sessions": len(SESSIONS),
     }
+
+
+
+# =============================================================================
+# METRICS ENDPOINT
+# =============================================================================
+
+
+@app.get("/api/metrics", response_class=PlainTextResponse)
+async def metrics_prometheus():
+    """Prometheus-compatible metrics endpoint."""
+    registry = get_metrics()
+    # Update active sessions gauge
+    registry.active_sessions.set(len(SESSIONS))
+    return registry.to_prometheus()
+
+
+@app.get("/api/metrics/json")
+async def metrics_json():
+    """JSON metrics endpoint."""
+    registry = get_metrics()
+    registry.active_sessions.set(len(SESSIONS))
+    return registry.to_dict()
 
 
 # =============================================================================
