@@ -114,6 +114,20 @@ class LLMClient:
         else:
             raise ValueError(f"Unknown provider: {self.config.provider}")
     
+    def complete_json(self, *, system: str, user: str) -> str:
+        """
+        Return raw JSON text. Caller parses/validates.
+        
+        Deterministic: temperature=0, no streaming.
+        """
+        response = self.complete(
+            system=system,
+            user=user,
+            temperature=0.0,
+            max_tokens=900,
+        )
+        return response.content
+    
     def _openai_complete(
         self,
         client: Any,
