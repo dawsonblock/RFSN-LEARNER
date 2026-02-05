@@ -4,6 +4,7 @@ Thin integration layer that wires Thompson sampling into the plan execution loop
 
 This is the missing "glue" that:
   - chooses a planning strategy via learned selection (not heuristics)
+  - selects arms across all categories via MultiArmLearner
   - records outcome reward after execution
   - feeds the bandit so it actually learns
 """
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from upstream_learner.outcome_db import OutcomeDB
+from upstream_learner.arm_registry import MultiArmLearner, MultiArmSelection
 from upstream_learner.propose import (
     select_strategy,
     record_strategy_outcome,
@@ -35,6 +37,7 @@ class LearnerBridge:
     """
     Thin integration layer:
       - chooses a planning strategy via Thompson sampling
+      - selects arms across all categories
       - records outcome reward after execution
     
     This closes the loop: selection → execution → reward → record
@@ -45,8 +48,10 @@ class LearnerBridge:
         if self.cfg.enabled:
             Path(self.cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
             self.db = OutcomeDB(self.cfg.db_path)
+            self.multi_arm_learner = MultiArmLearner(self.db)
         else:
             self.db = None
+            self.multi_arm_learner = None
 
     def choose_plan_strategy(self, *, goal: str, seed: int = 0) -> PlanStrategy:
         """
@@ -63,6 +68,21 @@ class LearnerBridge:
             strategies=ALL_STRATEGIES,
             seed=seed,
         )
+
+    def select_arms(
+        self,
+        *,
+        context_key: str,
+        seed: int = 0,
+    ) -> MultiArmSelection | None:
+        """
+        Select arms across all categories using Thompson sampling.
+        
+        Returns None if learner is disabled.
+        """
+        if not self.multi_arm_learner:
+            return None
+        return self.multi_arm_learner.select(context_key=context_key, seed=seed)
 
     def record_plan_outcome(
         self,
@@ -105,4 +125,39 @@ class LearnerBridge:
             reward=float(reward),
             meta=payload,
             ts_utc=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def record_rich_outcome(
+        self,
+        *,
+        selection: MultiArmSelection,
+        reward: float,
+        task_id: str = "",
+        run_id: str = "",
+        wall_time_ms: float = 0.0,
+        tool_calls: int = 0,
+        tests_passed: int = 0,
+        tests_failed: int = 0,
+        patch_size: int = 0,
+        meta: Mapping[str, Any] | None = None,
+    ) -> None:
+        """
+        Record rich outcome with full metrics for multi-arm selection.
+        
+        Use this when recording outcomes from run_task or SWE-bench runs.
+        """
+        if not self.multi_arm_learner:
+            return
+        
+        self.multi_arm_learner.record_rich(
+            selection=selection,
+            reward=reward,
+            task_id=task_id,
+            run_id=run_id,
+            wall_time_ms=wall_time_ms,
+            tool_calls=tool_calls,
+            tests_passed=tests_passed,
+            tests_failed=tests_failed,
+            patch_size=patch_size,
+            meta=meta,
         )

@@ -35,8 +35,13 @@ dev = [
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
 ]
+dashboard = [
+    "streamlit>=1.30.0",
+    "plotly>=5.18.0",
+    "pandas>=2.0.0",
+]
 all = [
-    "rfsn-learner[llm,dev]",
+    "rfsn-learner[llm,dev,dashboard]",
 ]
 
 [project.scripts]

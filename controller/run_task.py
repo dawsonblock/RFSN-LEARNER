@@ -17,8 +17,6 @@ import argparse
 import json
 import random
 import time
-from dataclasses import asdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +30,7 @@ from .planner.generator import generate_plan
 from .planner.executor import execute_plan
 
 from upstream_learner.outcome_db import OutcomeDB
-from upstream_learner.bandit import thompson_select, ArmStats
-from upstream_learner.arms import ARMS_BY_CATEGORY, Arm, ArmCategory
+from upstream_learner.arm_registry import MultiArmLearner
 
 
 def load_task(path: str) -> dict[str, Any]:
@@ -53,77 +50,6 @@ def create_snapshot(task: dict[str, Any]) -> WorldSnapshot:
         metadata=task.get("metadata", {}),
     )
 
-
-class MultiArmLearner:
-    """
-    Learner that selects arms across all categories.
-    """
-    
-    def __init__(self, db_path: str, enabled: bool = True):
-        self.db = OutcomeDB(db_path) if enabled else None
-        self.enabled = enabled
-    
-    def select_arm(
-        self,
-        category: ArmCategory,
-        context_key: str,
-        seed: int = 0,
-    ) -> Arm:
-        """Select best arm for a category using Thompson sampling."""
-        arms = ARMS_BY_CATEGORY.get(category, [])
-        if not arms:
-            raise ValueError(f"No arms for category: {category}")
-        
-        arm_keys = [a.key for a in arms]
-        
-        if self.db is None:
-            # Random selection when disabled
-            random.seed(seed)
-            return random.choice(arms)
-        
-        # Get historical stats
-        summary = self.db.summary(context_key=context_key)
-        stats = [ArmStats(arm_key=a, n=n, mean=mu) for (a, n, mu) in summary]
-        
-        selected_key = thompson_select(arm_keys, stats, seed=seed)
-        return next((a for a in arms if a.key == selected_key), arms[0])
-    
-    def select_all_arms(
-        self,
-        context_key: str,
-        seed: int = 0,
-    ) -> dict[ArmCategory, Arm]:
-        """Select arms for all categories."""
-        result: dict[ArmCategory, Arm] = {}
-        for i, category in enumerate(ARMS_BY_CATEGORY.keys()):
-            result[category] = self.select_arm(
-                category=category,  # type: ignore
-                context_key=f"{context_key}::{category}",
-                seed=seed + i,
-            )
-        return result
-    
-    def record_outcome(
-        self,
-        context_key: str,
-        arms: dict[ArmCategory, Arm],
-        reward: float,
-        meta: dict[str, Any],
-    ) -> None:
-        """Record outcome for all selected arms."""
-        if self.db is None:
-            return
-        
-        ts = datetime.now(timezone.utc).isoformat()
-        
-        for category, arm in arms.items():
-            self.db.record(
-                context_key=f"{context_key}::{category}",
-                arm_key=arm.key,
-                reward=float(reward),
-                meta_json=json.dumps(meta, sort_keys=True, separators=(",", ":")),
-                ts_utc=ts,
-            )
 
 
 def run_task(
@@ -149,17 +75,18 @@ def run_task(
     context_key = f"task::{task_id}"
     
     # Initialize
-    learner = MultiArmLearner(db_path=db_path, enabled=True)
+    db = OutcomeDB(db_path)
+    learner = MultiArmLearner(db=db)
     snapshot = create_snapshot(task)
     context = ExecutionContext(session_id=task_id)
     ledger = AppendOnlyLedger(str(out_dir / "ledger.jsonl"))
-    
+
     # ---- Select arms ----
-    arms = learner.select_all_arms(context_key=context_key, seed=seed)
-    arm_keys = {cat: arm.key for cat, arm in arms.items()}
+    selection = learner.select(context_key=context_key, seed=seed)
+    arm_keys = selection.to_dict()
     
     # ---- Get strategy from plan arm ----
-    plan_arm = arms.get("plan")
+    plan_arm = selection.get("plan")
     strategy = plan_arm.key.split("::")[-1] if plan_arm else "direct"
     
     # ---- Generate plan ----
@@ -203,9 +130,8 @@ def run_task(
         "wall_time": end_time - start_time,
     }
     
-    learner.record_outcome(
-        context_key=context_key,
-        arms=arms,
+    learner.record(
+        selection=selection,
         reward=reward,
         meta=meta,
     )
