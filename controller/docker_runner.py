@@ -80,10 +80,24 @@ def run_in_container(
 
     # Production security hardening
     docker_cmd.extend([
+        # Process limits
         "--pids-limit=128",
+        # Filesystem security
         "--read-only",
+        "--tmpfs=/tmp:rw,noexec,nosuid,size=64m",
+        "--tmpfs=/var/tmp:rw,noexec,nosuid,size=32m",
+        # Privilege escalation prevention
         "--security-opt=no-new-privileges",
+        # Drop all capabilities
+        "--cap-drop=ALL",
+        # User namespace isolation (run as non-root)
+        "--user=65534:65534",
+        # Seccomp profile (default Docker seccomp)
+        "--security-opt=seccomp=unconfined" if False else "",  # Use default profile
     ])
+
+    # Remove empty strings from cmd
+    docker_cmd = [c for c in docker_cmd if c]
 
     if env:
         for k, v in env.items():
