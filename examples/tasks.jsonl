@@ -1,0 +1,5 @@
+{"id": "task_001", "goal": "list files in the current directory", "state_hash": "abc123", "metadata": {"source": "demo"}}
+{"id": "task_002", "goal": "read the README.md file", "state_hash": "def456", "metadata": {"source": "demo"}}
+{"id": "task_003", "goal": "search for python files in the project", "state_hash": "ghi789", "metadata": {"source": "demo"}}
+{"id": "task_004", "goal": "count the number of lines in pyproject.toml", "state_hash": "jkl012", "metadata": {"source": "demo"}}
+{"id": "task_005", "goal": "list the tests directory contents", "state_hash": "mno345", "metadata": {"source": "demo"}}

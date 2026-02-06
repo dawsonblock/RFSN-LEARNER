@@ -1,0 +1,18 @@
+{
+  "task_id": "example_001",
+  "success": true,
+  "reward": 1.0,
+  "arms": {
+    "plan": "plan::iterative",
+    "prompt": "prompt::concise",
+    "retrieval": "retrieval::file_list",
+    "search": "search::medium",
+    "test": "test::minimal",
+    "model": "model::gpt4o"
+  },
+  "strategy": "iterative",
+  "completed_steps": 1,
+  "total_steps": 1,
+  "wall_time": 0.11156105995178223,
+  "seed": 42
+}
