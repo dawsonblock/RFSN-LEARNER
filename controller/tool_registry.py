@@ -178,7 +178,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             ],
             risk=Risk.MEDIUM,
             budget=Budget(calls_per_turn=30),
-            permission=PermissionRule(require_explicit_grant=False, mutates=True),
+            permission=PermissionRule(require_explicit_grant=True, deny_in_replay=True, mutates=True),
         ),
         "memory_retrieve": spec(
             "memory_retrieve",
