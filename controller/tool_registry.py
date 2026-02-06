@@ -89,14 +89,19 @@ class ToolSpec:
 
 def build_tool_registry() -> dict[str, ToolSpec]:
     """Build the single authoritative registry for all exposed tools."""
+    from .config import ALLOW_HOST_EXEC
+
     handlers: dict[str, Callable[..., Any]] = {}
     handlers.update(FILESYSTEM_TOOLS)
     handlers.update(MEMORY_TOOLS)
     handlers.update(BROWSER_TOOLS)
-    handlers.update(SHELL_TOOLS)
     handlers.update(CODE_TOOLS)
     handlers.update(REASONING_TOOLS)
     handlers.update(SANDBOX_TOOLS)
+
+    # Host exec tools only in DEV_MODE
+    if ALLOW_HOST_EXEC:
+        handlers.update(SHELL_TOOLS)
 
     def spec(
         name: str,
@@ -116,7 +121,7 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             permission=permission,
         )
 
-    return {
+    tools = {
         # --- filesystem ---
         "read_file": spec(
             "read_file",
@@ -228,35 +233,6 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             budget=Budget(calls_per_turn=10, max_results=10),
             permission=PermissionRule(),
         ),
-        # --- shell ---
-        "run_command": spec(
-            "run_command",
-            [
-                Field("command", True, "str"),
-                Field("cwd", False, "str"),
-                Field("timeout", False, "int"),
-                Field("max_output", False, "int"),
-            ],
-            risk=Risk.HIGH,
-            budget=Budget(calls_per_turn=12, max_bytes=100_000),
-            permission=PermissionRule(
-                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True, mutates=True
-            ),
-        ),
-        "run_python": spec(
-            "run_python",
-            [
-                Field("code", True, "str"),
-                Field("cwd", False, "str"),
-                Field("timeout", False, "int"),
-                Field("max_output", False, "int"),
-            ],
-            risk=Risk.HIGH,
-            budget=Budget(calls_per_turn=6, max_bytes=100_000),
-            permission=PermissionRule(
-                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True, mutates=True
-            ),
-        ),
         # --- sandbox execution (Docker-backed) ---
         "sandbox_exec": spec(
             "sandbox_exec",
@@ -351,6 +327,39 @@ def build_tool_registry() -> dict[str, ToolSpec]:
             permission=PermissionRule(),
         ),
     }
+
+    # Host exec tools only in DEV_MODE
+    if ALLOW_HOST_EXEC:
+        tools["run_command"] = spec(
+            "run_command",
+            [
+                Field("command", True, "str"),
+                Field("cwd", False, "str"),
+                Field("timeout", False, "int"),
+                Field("max_output", False, "int"),
+            ],
+            risk=Risk.HIGH,
+            budget=Budget(calls_per_turn=12, max_bytes=100_000),
+            permission=PermissionRule(
+                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True, mutates=True
+            ),
+        )
+        tools["run_python"] = spec(
+            "run_python",
+            [
+                Field("code", True, "str"),
+                Field("cwd", False, "str"),
+                Field("timeout", False, "int"),
+                Field("max_output", False, "int"),
+            ],
+            risk=Risk.HIGH,
+            budget=Budget(calls_per_turn=6, max_bytes=100_000),
+            permission=PermissionRule(
+                require_explicit_grant=True, restrict_paths_to_workdir=True, deny_in_replay=True, mutates=True
+            ),
+        )
+
+    return tools
 
 
 def validate_arguments(spec: ToolSpec, arguments: Mapping[str, Any]) -> tuple[bool, str]:

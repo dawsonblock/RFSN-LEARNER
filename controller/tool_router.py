@@ -111,6 +111,12 @@ def route_tool_call(
             False, None, f"Unknown tool: {tool_name}. Available: {sorted(TOOL_REGISTRY.keys())}"
         )
 
+    # Belt-and-suspenders: deny host exec if ALLOW_HOST_EXEC is False
+    from .config import ALLOW_HOST_EXEC
+    if tool_name in ("run_command", "run_python") and not ALLOW_HOST_EXEC:
+        logger.warning("host_exec_disabled", extra={"tool": tool_name})
+        return ToolResult(False, None, "Host execution is disabled. Use sandbox_exec (Docker) instead.")
+
     spec = TOOL_REGISTRY[tool_name]
 
     # 1) Schema validation

@@ -60,3 +60,20 @@ def get_docker_config() -> DockerConfig:
 def use_docker() -> bool:
     """Convenience function: True if docker TEST mode is enabled."""
     return get_test_mode() == TestMode.DOCKER
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    """Parse boolean from environment variable."""
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+# DEV_MODE: enables host execution tools (run_command, run_python)
+# When False (production default), only docker-backed sandbox_exec is available
+DEV_MODE: bool = env_bool("DEV_MODE", False)
+
+# When False, only docker-backed execution is allowed
+ALLOW_HOST_EXEC: bool = DEV_MODE
+

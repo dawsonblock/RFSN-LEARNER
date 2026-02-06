@@ -39,7 +39,11 @@ htmlcov/
 
 # Runtime data
 *.db
+*.sqlite
 *.sqlite3
+tmp/*.sqlite
+tmp/*.db
+tmp/outcomes.sqlite
 *.log
 rfsn_ledger.jsonl
 agent_memory.db

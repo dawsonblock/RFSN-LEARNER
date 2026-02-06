@@ -119,10 +119,14 @@ class TestPermissionGating:
         assert result.success or "Permission" not in (result.error or "")
 
     def test_run_command_requires_grant(self):
-        """run_command requires explicit permission grant."""
+        """sandbox_exec requires explicit permission grant.
+
+        Note: run_command is only available when DEV_MODE=1.
+        sandbox_exec is the default execution tool.
+        """
         context = ExecutionContext(session_id="test")
 
-        result = route_tool_call("run_command", {"command": "ls"}, context)
+        result = route_tool_call("sandbox_exec", {"command": "ls"}, context)
 
         assert not result.success
         assert "Permission required" in result.error
@@ -196,10 +200,14 @@ class TestBudgetEnforcement:
 class TestRegistryCompleteness:
     """Registry must have all expected tools."""
 
-    def test_registry_has_19_tools(self):
-        """Registry should have exactly 19 tools."""
+    def test_registry_has_17_tools_by_default(self):
+        """Registry should have 17 tools by default (host exec hidden).
+
+        With DEV_MODE=1, there are 19 tools (run_command, run_python added).
+        """
         registry = build_tool_registry()
-        assert len(registry) == 19
+        # 17 by default, 19 with DEV_MODE=1
+        assert len(registry) == 17
 
     def test_all_high_risk_require_grant(self):
         """All HIGH risk tools should require explicit grant."""

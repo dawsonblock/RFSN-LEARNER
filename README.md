@@ -116,6 +116,22 @@ python -m controller.chat --dev
 | `analyze project` | `search_first` | 2+ |
 | `help me` | `ask_user` | 1 |
 
+## Execution Modes
+
+By default, only Docker-backed execution (`sandbox_exec`) is available, enforcing the "all execution in sandbox" security posture.
+
+To enable host execution tools (`run_command`, `run_python`) for development:
+
+```bash
+DEV_MODE=1 python -m controller.chat --dev
+```
+
+> **Warning**: Host execution bypasses container isolation. Only use in trusted development environments.
+
+### Evaluation Code (Optional)
+
+This repo includes optional evaluation utilities (e.g., SWE-bench helpers) for benchmarking and testing. They are **not** part of the default multipurpose agent runtime and are not imported by the UI/server entrypoints. See `controller/swe_eval.py` if you need evaluation support.
+
 ## License
 
 MIT
