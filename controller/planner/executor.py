@@ -11,7 +11,6 @@ ROLLBACK SEMANTICS:
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from rfsn.policy import DEFAULT_POLICY, AgentPolicy
