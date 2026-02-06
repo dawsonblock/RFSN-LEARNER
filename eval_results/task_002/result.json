@@ -1,0 +1,18 @@
+{
+  "task_id": "task_002",
+  "success": true,
+  "reward": 1.0,
+  "arms": {
+    "plan": "plan::direct",
+    "prompt": "prompt::detailed",
+    "retrieval": "retrieval::file_list",
+    "search": "search::shallow",
+    "test": "test::related",
+    "model": "model::gpt4o"
+  },
+  "strategy": "direct",
+  "completed_steps": 1,
+  "total_steps": 1,
+  "wall_time": 0.12034726142883301,
+  "seed": 43
+}
