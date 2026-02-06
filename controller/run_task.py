@@ -28,6 +28,7 @@ from upstream_learner.arm_registry import MultiArmLearner
 from upstream_learner.outcome_db import OutcomeDB
 
 from .planner.executor import execute_plan
+from .planner.sqlite_snapshot import SqliteTarget
 from .planner.generator import generate_plan
 from .reward.combine import PlanProgress, TestOutcome, combined_reward
 from .tool_router import ExecutionContext
@@ -91,8 +92,21 @@ def run_task(
     # ---- Generate plan ----
     plan = generate_plan(goal, snapshot, strategy=strategy)
 
-    # ---- Execute plan ----
-    result = execute_plan(plan, context, snapshot, policy=DEV_POLICY)
+    # ---- SQLite targets for rollback ----
+    sqlite_targets = [
+        SqliteTarget(name="learner_outcomes", path="tmp/outcomes.sqlite"),
+    ]
+
+    # ---- Execute plan with rollback enabled ----
+    result = execute_plan(
+        plan,
+        context,
+        snapshot,
+        policy=DEV_POLICY,
+        enable_workdir_rollback=True,
+        sqlite_targets=sqlite_targets,
+        keep_sqlite_snaps=5,
+    )
 
     # ---- Compute reward ----
     plan_progress = PlanProgress(

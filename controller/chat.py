@@ -22,6 +22,7 @@ from .learner_bridge import LearnerBridge, LearnerConfig
 from .ledger_events import ledger_info
 from .planner import execute_plan
 from .planner.generator import generate_plan
+from .planner.sqlite_snapshot import SqliteTarget
 from .replay_store import ReplayStore
 from .tool_router import ExecutionContext, list_available_tools, route_action
 from .tools.filesystem import ToolResult
@@ -226,7 +227,19 @@ def run_interactive_mode(policy: AgentPolicy, replay: ReplayStore | None = None)
                 print(f"  {i}. {step.description} [{step.action.kind}]")
 
             print("\n[EXECUTING]")
-            result = execute_plan(plan, context, snapshot, policy=policy)
+            # SQLite targets for rollback
+            sqlite_targets = [
+                SqliteTarget(name="learner_outcomes", path="tmp/outcomes.sqlite"),
+            ]
+            result = execute_plan(
+                plan,
+                context,
+                snapshot,
+                policy=policy,
+                enable_workdir_rollback=True,
+                sqlite_targets=sqlite_targets,
+                keep_sqlite_snaps=5,
+            )
 
             for sr in result.step_results:
                 step = plan.get_step(sr.step_id)
