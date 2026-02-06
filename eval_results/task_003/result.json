@@ -1,0 +1,18 @@
+{
+  "task_id": "task_003",
+  "success": true,
+  "reward": 1.0,
+  "arms": {
+    "plan": "plan::decompose",
+    "prompt": "prompt::detailed",
+    "retrieval": "retrieval::none",
+    "search": "search::medium",
+    "test": "test::related",
+    "model": "model::claude_sonnet"
+  },
+  "strategy": "decompose",
+  "completed_steps": 1,
+  "total_steps": 1,
+  "wall_time": 0.09611701965332031,
+  "seed": 44
+}
