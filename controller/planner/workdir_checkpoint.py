@@ -41,14 +41,14 @@ def ensure_git_repo(workdir: str) -> None:
 def checkpoint(workdir: str, label: str) -> str:
     """
     Create a checkpoint commit in the workdir.
-    
+
     Returns the commit hash.
     """
     wd = Path(workdir).resolve()
     ensure_git_repo(str(wd))
 
     _run(["git", "add", "-A"], wd)
-    r = _run(["git", "commit", "-m", f"checkpoint:{label}", "--allow-empty"], wd)
+    _run(["git", "commit", "-m", f"checkpoint:{label}", "--allow-empty"], wd)
 
     # Get current HEAD
     head = _run(["git", "rev-parse", "HEAD"], wd)

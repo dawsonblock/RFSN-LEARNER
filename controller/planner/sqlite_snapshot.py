@@ -35,7 +35,7 @@ def snapshot_sqlite_files(
 ) -> List[str]:
     """
     Copy each sqlite file to <path>.rfsn_snap.<checkpoint_id>
-    
+
     Returns list of created snapshot paths.
     """
     created: List[str] = []
