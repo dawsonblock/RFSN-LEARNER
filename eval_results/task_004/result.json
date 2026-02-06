@@ -1,0 +1,18 @@
+{
+  "task_id": "task_004",
+  "success": true,
+  "reward": 1.0,
+  "arms": {
+    "plan": "plan::decompose",
+    "prompt": "prompt::concise",
+    "retrieval": "retrieval::file_list",
+    "search": "search::medium",
+    "test": "test::full",
+    "model": "model::gpt4o"
+  },
+  "strategy": "decompose",
+  "completed_steps": 1,
+  "total_steps": 1,
+  "wall_time": 0.08273196220397949,
+  "seed": 45
+}
